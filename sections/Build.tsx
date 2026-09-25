@@ -1,33 +1,26 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useRef } from "react"
 import Image from "next/image"
 
 import { SectionLabel } from "@/components/brand/Brand"
 import {
   ArtFlightHardware,
   ArtFormFactor,
-  ArtGroundSoftware,
 } from "@/components/brand/BuildArtwork"
 import { gsap, useGSAP, prefersReducedMotion } from "@/lib/gsap"
-import { DASHBOARD_URL } from "@/lib/config"
 
-function DashboardShot() {
-  const [failed, setFailed] = useState(false)
-  const src = "/assets/img/dashboard.png"
-
-  if (failed) return <ArtGroundSoftware className="h-full w-full text-white/85" />
-
+function GroundStationShot() {
   return (
-    <Image
-      src={src}
-      alt="The SomaiyaSat Ground Control mission screen"
-      width={640}
-      height={400}
-      unoptimized
-      onError={() => setFailed(true)}
-      className="h-full w-full object-cover object-top"
-    />
+    <div className="relative h-full w-full overflow-hidden bg-black flex items-center justify-center">
+      <Image
+        src="/assets/img/ground-station.jpg"
+        alt="Ground Station Operations and Telemetry Terminal Blueprint"
+        width={640}
+        height={400}
+        className="h-full w-full object-cover object-center"
+      />
+    </div>
   )
 }
 
@@ -43,10 +36,9 @@ const CARDS = [
     art: <ArtFormFactor className="h-full w-full text-white/85" />,
   },
   {
-    caption: "Ground control software",
-    note: "Expected output #4 of the use case: ground-station software for multi-mode reception.",
-    art: <DashboardShot />,
-    href: DASHBOARD_URL,
+    caption: "Ground Station Operations Terminal",
+    note: "Automated multi-mode reception, orbital pass telemetry tracking, and telemetry demodulation.",
+    art: <GroundStationShot />,
   },
 ]
 
@@ -86,16 +78,14 @@ export function Build() {
             </h2>
           </div>
           <p className="max-w-[40ch] text-sm leading-[1.8] text-[#8a8f98]">
-            Drawings are original, built from the dimensions in the use case&apos;s
-            Fig. 2. The ground software is the Streamlit dashboard in this
-            repository, reading the same PostgreSQL database the router rules
-            live in.
+            Original engineering schematics derived from the flight specification in Fig. 2.
+            Paired with the automated ground telemetry terminal for real-time orbital pass ingestion.
           </p>
         </div>
 
         <div className="build-grid mt-16 grid gap-6 md:grid-cols-3">
-          {CARDS.map((c) => {
-            const inner = (
+          {CARDS.map((c) => (
+            <div key={c.caption} className="h-full">
               <div className="build-card group h-full overflow-hidden rounded-xl border border-white/[0.12] bg-white/[0.03] transition-colors duration-500 hover:border-[#3d6bff]/60">
                 <div className="aspect-[8/5] w-full overflow-hidden bg-white/[0.02]">
                   <div className="h-full w-full transition-transform duration-700 ease-out group-hover:scale-[1.04]">
@@ -109,24 +99,8 @@ export function Build() {
                   </span>
                 </div>
               </div>
-            )
-
-            return c.href ? (
-              <a
-                key={c.caption}
-                href={c.href}
-                target="_blank"
-                rel="noreferrer"
-                className="block h-full"
-              >
-                {inner}
-              </a>
-            ) : (
-              <div key={c.caption} className="h-full">
-                {inner}
-              </div>
-            )
-          })}
+            </div>
+          ))}
         </div>
       </div>
     </section>

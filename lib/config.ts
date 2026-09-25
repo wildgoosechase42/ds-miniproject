@@ -3,7 +3,7 @@ export const DASHBOARD_URL =
 
 export const MISSION = {
   college: "K J Somaiya School of Engineering",
-  course: "DBMS Mini Project · SY B.Tech IT",
+  course: "DS Mini Project · SY B.Tech IT",
   useCase: "KJS-SRS-01",
   useCaseTitle:
     "SomaiyaSat & SomaiyaPod: A PocketQube Mission featuring Autonomous " +

@@ -1,6 +1,7 @@
 "use client"
 
 import { useRef } from "react"
+import Image from "next/image"
 
 import { Wordmark, SectionLabel } from "@/components/brand/Brand"
 import { gsap, useGSAP, prefersReducedMotion } from "@/lib/gsap"
@@ -78,10 +79,21 @@ export function Footer() {
       <div className="shell relative z-10 py-20 md:py-24">
         <div className="grid gap-12 md:grid-cols-[1.2fr_1fr_1fr]">
           <div>
-            <Wordmark className="text-[22px]" />
+            <div className="flex items-center gap-3">
+              <div className="relative size-8 shrink-0 overflow-hidden rounded-full bg-white p-0.5 shadow-md border border-white/20">
+                <Image
+                  src="/somaiya-logo.png"
+                  alt="Somaiya Vidyavihar Logo"
+                  width={32}
+                  height={32}
+                  className="size-full object-contain"
+                />
+              </div>
+              <Wordmark className="text-[22px]" />
+            </div>
             <p className="mt-4 max-w-[38ch] text-sm leading-relaxed text-[#8a8f98]">
-              A ground-station database for a PocketQube that has to choose what
-              to say in the few minutes a day anyone can hear it.
+              An in-memory C telemetry core and orbital data structures engine for a
+              PocketQube spacecraft with real-time SatNOGS database integration.
             </p>
             <p className="mt-4 max-w-[44ch] text-[12px] leading-relaxed text-[#8a8f98]/70">
               {MISSION.useCaseTitle}
@@ -135,7 +147,7 @@ export function Footer() {
             © {new Date().getFullYear()} SomaiyaSat Ground Control
           </span>
           <span className="mono-label text-[#8a8f98]">
-            Built with PostgreSQL · Streamlit · Next.js
+            Built with Pure C Core · Python ctypes · FastAPI · SatNOGS DB · Next.js · Three.js
           </span>
         </div>
       </div>

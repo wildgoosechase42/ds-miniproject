@@ -6,13 +6,31 @@ import { Hero } from "@/components/Hero"
 import { Mission } from "@/sections/Mission"
 import { Challenge } from "@/sections/Challenge"
 import { Build } from "@/sections/Build"
+import { FlightEngine } from "@/components/sections/FlightEngine"
 import { Footer } from "@/components/layout/Footer"
 import { initLenis, destroyLenis } from "@/lib/lenis"
 
 export default function Home() {
   useEffect(() => {
-    initLenis()
+    if (typeof window !== "undefined") {
+      if ("scrollRestoration" in window.history) {
+        window.history.scrollRestoration = "manual"
+      }
+      window.scrollTo(0, 0)
+    }
+
+    const lenis = initLenis()
+    if (lenis) {
+      lenis.scrollTo(0, { immediate: true })
+    }
+
+    const onBeforeUnload = () => {
+      window.scrollTo(0, 0)
+    }
+    window.addEventListener("beforeunload", onBeforeUnload)
+
     return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload)
       destroyLenis()
     }
   }, [])
@@ -25,6 +43,7 @@ export default function Home() {
         <Mission />
         <Challenge />
         <Build />
+        <FlightEngine />
       </main>
       <Footer />
     </div>
