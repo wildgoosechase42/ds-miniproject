@@ -1,5 +1,7 @@
 # SomaiyaSat Flight Computing Engine & Ground Control
 
+Link:https://ds-miniproject.vercel.app/
+
 [![Next.js](https://img.shields.io/badge/Next.js-16.3.6-black?logo=next.js)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Python_ctypes-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
 [![C](https://img.shields.io/badge/C-libmissionsuite.so-A8B9CC?logo=c)](https://en.wikipedia.org/wiki/C_(programming_language))
