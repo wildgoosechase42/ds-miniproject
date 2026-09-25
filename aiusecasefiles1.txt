@@ -1,0 +1,241 @@
+Experiment 1 Post Lab Question:
+Design an array of structures for storing telemetry packets including Packet ID, Timestamp, Battery Status, and Payload Type. Analyze the suitability of arrays for continuous satellite communication.
+
+Code:
+#include <stdint.h>
+
+typedef struct {
+    uint32_t packet_id;
+    uint64_t timestamp;
+    float battery_status;
+    uint8_t payload_type;
+} TelemetryPacket;
+
+#define BUFFER_SIZE 1024
+TelemetryPacket telemetry_buffer[BUFFER_SIZE];
+
+
+Experiment 2 Post Lab Question:
+Design a linked list for telemetry packet buffering. Explain why linked lists are suitable for variable packet generation during orbital communication.
+
+Code:
+#include <stdio.h>
+#include <stdlib.h>
+
+struct Node {
+    int packetID;
+    struct Node *next;
+};
+
+struct Node *head = NULL;
+
+void insertPacket(int id) {
+    struct Node *newNode = (struct Node*)malloc(sizeof(struct Node));
+    newNode->packetID = id;
+    newNode->next = NULL;
+    if (head == NULL) {
+        head = newNode;
+    } else {
+        struct Node *temp = head;
+        while (temp->next != NULL) {
+            temp = temp->next;
+        }
+        temp->next = newNode;
+    }
+    printf("Packet %d buffered.\n", id);
+}
+
+void processPacket() {
+    if (head == NULL) {
+        printf("Buffer Empty!\n");
+        return;
+    }
+    struct Node *temp = head;
+    printf("Processed Packet: %d\n", temp->packetID);
+    head = head->next;
+    free(temp);
+}
+
+void displayBuffer() {
+    struct Node *temp = head;
+    if (temp == NULL) {
+        printf("Buffer Empty!\n");
+        return;
+    }
+    printf("Telemetry Buffer: ");
+    while (temp != NULL) {
+        printf("%d -> ", temp->packetID);
+        temp = temp->next;
+    }
+    printf("NULL\n");
+}
+
+int main() {
+    int ch, id;
+    while (1) {
+        printf("\n1.Insert Packet\n2.Process Packet\n3.Display Buffer\n4.Exit\n");
+        printf("Enter Choice: ");
+        scanf("%d", &ch);
+        switch (ch) {
+            case 1:
+                printf("Enter Packet ID: ");
+                scanf("%d", &id);
+                insertPacket(id);
+                break;
+            case 2:
+                processPacket();
+                break;
+            case 3:
+                displayBuffer();
+                break;
+            case 4:
+                return 0;
+            default:
+                printf("Invalid Choice!\n");
+        }
+    }
+    return 0;
+}
+
+
+
+
+
+Experiment 3 Post Lab Question:
+Explain how stack structures support nested command execution and telemetry processing in onboard satellite software.
+
+
+
+
+Experiment 4 Post Lab Question:
+A PocketQube satellite continuously receives telemetry packets during communication windows. Design a Circular Static Queue to buffer incoming telemetry packets before transmission to the ground station. Analyze its suitability for memory-constrained onboard systems.
+
+Code:
+#include <stdio.h>
+
+#define CAPACITY 5
+
+struct CircularQueue {
+    int arr[CAPACITY];
+    int front;
+    int rear;
+    int count;
+};
+
+void createQueue(struct CircularQueue *q) {
+    if (q == NULL) {
+        return;
+    }
+    q->front = 0;
+    q->rear = 0;
+    q->count = 0;
+}
+
+int isEmpty(struct CircularQueue *q) {
+    if (q == NULL) {
+        return 1;
+    }
+    if (q->count == 0) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+int isFull(struct CircularQueue *q) {
+    if (q == NULL) {
+        return 0;
+    }
+    if (q->count == CAPACITY) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+void enqueue(struct CircularQueue *q, int packet) {
+    if (q == NULL) {
+        return;
+    }
+    if (isFull(q) == 1) {
+        printf("Telemetry Buffer Overflow\n");
+        return;
+    }
+    q->arr[q->rear] = packet;
+    q->rear = (q->rear + 1) % CAPACITY;
+    q->count = q->count + 1;
+}
+
+int dequeue(struct CircularQueue *q) {
+    if (q == NULL) {
+        return -1;
+    }
+    if (isEmpty(q) == 1) {
+        printf("Telemetry Buffer Underflow\n");
+        return -1;
+    }
+    int packet = q->arr[q->front];
+    q->front = (q->front + 1) % CAPACITY;
+    q->count = q->count - 1;
+    if (q->count == 0) {
+        q->front = 0;
+        q->rear = 0;
+    }
+    return packet;
+}
+
+int getFront(struct CircularQueue *q) {
+    if (q == NULL) {
+        return -1;
+    }
+    if (isEmpty(q) == 1) {
+        return -1;
+    }
+    return q->arr[q->front];
+}
+
+int size(struct CircularQueue *q) {
+    if (q == NULL) {
+        return 0;
+    }
+    return q->count;
+}
+
+void displayAll(struct CircularQueue *q) {
+    if (q == NULL) {
+        return;
+    }
+    if (isEmpty(q) == 1) {
+        return;
+    }
+    for (int i = 0; i < q->count; i = i + 1) {
+        int idx = (q->front + i) % CAPACITY;
+        printf("%d ", q->arr[idx]);
+    }
+    printf("\n");
+}
+
+int main() {
+    struct CircularQueue q;
+    createQueue(&q);
+    enqueue(&q, 101);
+    enqueue(&q, 102);
+    enqueue(&q, 103);
+    enqueue(&q, 104);
+    enqueue(&q, 105);
+    enqueue(&q, 106);
+
+    printf("Buffered Telemetry Packets:\n");
+    displayAll(&q);
+
+    printf("Transmitted Packet: %d\n", dequeue(&q));
+    printf("Next Packet: %d\n", getFront(&q));
+    printf("Packets Remaining: %d\n", size(&q));
+
+    return 0;
+}
+
+
+
+Experiment 5 Post Lab Question:
+Explain how BST can efficiently organize telemetry logs for quick retrieval during mission analysis.

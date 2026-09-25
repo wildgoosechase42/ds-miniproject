@@ -1,0 +1,586 @@
+Experiment 1
+Design an array of structures for storing telemetry packets including Packet ID,
+Timestamp, Battery Status, and Payload Type. Analyze the suitability of arrays
+for continuous satellite communication.
+#include <stdio.h>
+struct TelemetryPacket {
+long packet_id;
+long long timestamp;
+float battery_status;
+int payload_type;
+};
+int main() {
+struct TelemetryPacket telemetry_buffer[1024];
+telemetry_buffer[0].packet_id = 1042;
+telemetry_buffer[0].timestamp = 1719749358;
+telemetry_buffer[0].battery_status = 87.5f;
+telemetry_buffer[0].payload_type = 1;
+printf("Packet ID: %ld\nTimestamp: %lld\nBattery: %.1f%%\nPayload Type: %d\n",
+telemetry_buffer[0].packet_id,
+telemetry_buffer[0].timestamp,
+telemetry_buffer[0].battery_status,
+telemetry_buffer[0].payload_type);
+return 0;
+}
+
+
+Experiment 2
+Design a linked list for telemetry packet buffering. Explain why linked lists are
+suitable for variable packet generation during orbital communication
+#include <stdio.h>
+#include <stdlib.h>
+
+struct TelemetryPacket {
+    unsigned int packet_id;
+    unsigned long timestamp;
+    int sensor_id;
+    float measurement_value;
+    struct TelemetryPacket* next;
+};
+
+struct TelemetryBuffer {
+    struct TelemetryPacket* head;
+    struct TelemetryPacket* tail;
+    unsigned int current_size;
+};
+
+struct TelemetryBuffer* create_buffer() {
+    struct TelemetryBuffer* buffer = (struct TelemetryBuffer*)malloc(sizeof(struct TelemetryBuffer));
+    buffer->head = NULL;
+    buffer->tail = NULL;
+    buffer->current_size = 0;
+    return buffer;
+}
+
+void enqueue_packet(struct TelemetryBuffer* buffer, unsigned int p_id, unsigned long time, int s_id, float value) {
+    struct TelemetryPacket* new_packet = (struct TelemetryPacket*)malloc(sizeof(struct TelemetryPacket));
+    new_packet->packet_id = p_id;
+    new_packet->timestamp = time;
+    new_packet->sensor_id = s_id;
+    new_packet->measurement_value = value;
+    new_packet->next = NULL;
+
+    if (buffer->tail == NULL) {
+        buffer->head = new_packet;
+        buffer->tail = new_packet;
+    } else {
+        buffer->tail->next = new_packet;
+        buffer->tail = new_packet;
+    }
+    buffer->current_size++;
+}
+
+struct TelemetryPacket* dequeue_packet(struct TelemetryBuffer* buffer) {
+    if (buffer->head == NULL) {
+        return NULL;
+    }
+    struct TelemetryPacket* packet_to_send = buffer->head;
+    buffer->head = buffer->head->next;
+    if (buffer->head == NULL) {
+        buffer->tail = NULL;
+    }
+    buffer->current_size--;
+    return packet_to_send;
+}
+
+void free_packet(struct TelemetryPacket* packet) {
+    if (packet != NULL) {
+        free(packet);
+    }
+}
+
+int main() {
+    struct TelemetryBuffer* tx_buffer = create_buffer();
+
+    enqueue_packet(tx_buffer, 101, 1690000000, 4, 98.6f);
+    enqueue_packet(tx_buffer, 102, 1690000005, 7, 22.1f);
+    enqueue_packet(tx_buffer, 103, 1690000010, 2, 0.0f);
+
+    printf("Packets in buffer: %u\n\n", tx_buffer->current_size);
+
+    while (tx_buffer->current_size > 0) {
+        struct TelemetryPacket* p = dequeue_packet(tx_buffer);
+        if (p != NULL) {
+            printf("Transmitting Packet ID: %u\n", p->packet_id);
+            printf(" Timestamp: %lu\n", p->timestamp);
+            printf(" Sensor ID: %d\n", p->sensor_id);
+            printf(" Value: %.2f\n\n", p->measurement_value);
+            free_packet(p);
+        }
+    }
+
+    printf("Packets remaining: %u\n", tx_buffer->current_size);
+    free(tx_buffer);
+
+    return 0;
+}
+
+
+Experiment 3
+Explain how stack structures support nested command execution and telemetry
+processing in onboard satellite software.
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+struct SatelliteTask {
+    int task_id;
+    char task_type[20];
+    int priority_level;
+    struct SatelliteTask* next;
+};
+
+struct SatelliteTask* top = NULL;
+
+void pushTask(int id, const char* type, int priority) {
+    struct SatelliteTask* newTask = (struct SatelliteTask*)malloc(sizeof(struct SatelliteTask));
+    if (newTask == NULL) {
+        printf("Memory Allocation Failed. Stack Overflow.\n");
+        return;
+    }
+    newTask->task_id = id;
+    strcpy(newTask->task_type, type);
+    newTask->priority_level = priority;
+    newTask->next = top;
+    top = newTask;
+}
+
+void popTask() {
+    if (top == NULL) {
+        printf("Task Stack Underflow. No active tasks.\n");
+        return;
+    }
+    struct SatelliteTask* temp = top;
+    top = top->next;
+    free(temp);
+}
+
+void displayCurrentTask() {
+    if (top == NULL) {
+        printf("System Idle: No tasks in the stack.\n");
+        return;
+    }
+    printf("Executing Task ID: %d\n", top->task_id);
+    printf("Task Type: %s\n", top->task_type);
+    printf("Priority Level: %d\n", top->priority_level);
+}
+
+int main() {
+    pushTask(101, "SSTV_Transmission", 2);
+    pushTask(102, "Codec2_Voice", 3);
+    displayCurrentTask();
+
+    pushTask(999, "TTC_Housekeeping", 1);
+    printf("\n--- High Priority Interrupt ---\n");
+    displayCurrentTask();
+
+    printf("\n--- Task Completed ---\n");
+    popTask();
+
+    printf("\n--- Resuming Previous Task ---\n");
+    displayCurrentTask();
+
+    popTask();
+    popTask();
+
+    printf("\n--- All Tasks Completed ---\n");
+    displayCurrentTask();
+
+    return 0;
+}
+The Role of Stacks in Satellite Software
+In resource-constrained environments like the PocketQube satellite detailed , an onboard
+microcontroller must efficiently manage multiple tasks. A stack, operating on a Last-In, First-
+Out (LIFO) principle, is critical for managing these operations:
+• Nested Command Execution: Satellites often receive sequences of commands where
+one command triggers sub-commands. If the onboard AI-based scheduler determines
+that a high-priority Telemetry, Tracking & Command (TT&C) operation must interrupt
+a lower-priority task like SSTV image transmission, the current state of the lower-
+priority task is pushed onto a stack. Once the TT&C command executes, the previous
+state is popped from the stack, allowing the SSTV transmission to resume exactly where
+it left off.
+• Telemetry Processing: Stacks handle function calls and local variables during
+telemetry data acquisition. When the onboard flight computer reads sensor data for
+health monitoring or battery telemetry, the execution flow relies on the call stack to
+branch into sensor-reading routines and return the data to the main AI router module.
+• Resource Management: Running lightweight AI models (like decision trees or small
+neural networks) on hardware with strict power and compute budgets requires strict
+memory management. Stacks allocate memory statically and predictably during compile
+time or strict runtime limits, preventing memory fragmentation that could crash the
+flight computer
+
+
+Experiment 4
+A PocketQube satellite continuously receives telemetry packets during
+communication windows. Design a Circular Static Queue to buffer
+incoming telemetry packets before transmission to the ground station.
+Analyze its suitability for memory-constrained onboard systems
+#include <stdio.h>
+
+#define MAX_PACKETS 10
+#define PACKET_SIZE 32
+
+struct TelemetryPacket {
+    unsigned int timestamp;
+    float battery_voltage;
+    float temperature;
+    unsigned char payload_data[PACKET_SIZE];
+};
+
+struct TelemetryQueue {
+    struct TelemetryPacket buffer[MAX_PACKETS];
+    int front;
+    int rear;
+    int count;
+};
+
+void initQueue(struct TelemetryQueue* q) {
+    q->front = 0;
+    q->rear = 0;
+    q->count = 0;
+}
+
+int isFull(struct TelemetryQueue* q) {
+    if (q->count == MAX_PACKETS) {
+        return 1;
+    }
+    return 0;
+}
+
+int isEmpty(struct TelemetryQueue* q) {
+    if (q->count == 0) {
+        return 1;
+    }
+    return 0;
+}
+
+int enqueue(struct TelemetryQueue* q, struct TelemetryPacket newPacket) {
+    if (isFull(q)) {
+        return 0;
+    }
+    q->buffer[q->rear] = newPacket;
+    q->rear = (q->rear + 1) % MAX_PACKETS;
+    q->count++;
+    return 1;
+}
+
+int dequeue(struct TelemetryQueue* q, struct TelemetryPacket* outPacket) {
+    if (isEmpty(q)) {
+        return 0;
+    }
+    *outPacket = q->buffer[q->front];
+    q->front = (q->front + 1) % MAX_PACKETS;
+    q->count--;
+    return 1;
+}
+
+int main() {
+    struct TelemetryQueue q;
+    struct TelemetryPacket p1 = {1690000000, 3.7, 25.5, {0}};
+    struct TelemetryPacket p2;
+
+    initQueue(&q);
+    enqueue(&q, p1);
+
+    if (dequeue(&q, &p2)) {
+        printf("Timestamp: %u\n", p2.timestamp);
+        printf("Voltage: %.2fV\n", p2.battery_voltage);
+        printf("Temp: %.2fC\n", p2.temperature);
+    }
+
+    return 0;
+}
+
+Experiment 5
+Explain how BST can efficiently organize telemetry logs for quick retrieval
+during mission analysis.
+During short Low Earth Orbit (LEO) ground passes, the ground station must process and
+inspect SomaiyaSat’s downlinked telemetry (TT&C) housekeeping data before the
+communication window closes. Using your Binary Search Tree program, each node stores a
+packet timestamp or sequence ID in data, with left linking to earlier events and right linking to
+later events.
+How Each Operation Works in Mission Analysis
+ create() — Initializing Log Buffers: Sets root = NULL to prepare a clean log buffer
+whenever a new pass begins or during post-deployment initialization after separating
+from SomaiyaPod.
+ insert() — Real-Time Packet Ingestion: Places incoming sensor readings, battery
+metrics, and link-quality estimates into their correct sorted position immediately as the
+RF transceiver receives them.
+ search() — Quick Anomaly Identification: Jumps directly to a critical incident—such
+as deployer separation switch signals or battery drops across eclipse cycles—by
+branching left or right instead of reading through the entire log line by line.
+ deleteNode() — Managing Storage Limits: Safely removes old or redundant telemetry
+frames to keep memory open within the constrained compute hardware of a
+PocketQube.
+ inorder() — Timeline Reconstruction: Traverses the tree to print all telemetry records
+in strict chronological order. This lets operators reconstruct the exact sequence of
+events, verify satellite health, and audit the AI router's autonomous mode-switching
+decisions.
+
+
+Experiment 6
+Model satellite-ground station communication as a graph and explain how graph
+traversal identifies efficient routing paths.
+
+Vertex
+Index
+Node
+Label Node Type Description
+0 GS Ground
+Station Source uplink terminal
+1 Sat LEO Satellite Direct overhead satellite (in view of GS
+& GS )
+2 Sat LEO Satellite Relay satellite (in view of GS )
+3 Sat LEO Satellite Relay satellite (cross-linked to Sat & in
+view of GS )
+4 GS Ground
+Station Destination downlink terminal
+KJSSE/IT/SYBTECH /SEM-III/DS/2026-27
+Somaiya Vidyavihar University
+Adjacency Matrix Representation:
+Node 0
+(GS )
+1
+(Sat )
+2
+(Sat )
+3
+(Sat )
+4
+(GS )
+0
+(GS ) 0 1 1 0 0
+1
+(Sat ) 1 0 0 0 1
+2
+(Sat ) 1 0 0 1 0
+3
+(Sat ) 0 0 1 0 1
+4
+(GS ) 0 1 0 1 0
+BFS Traversal for Efficient Path Routing
+KJSSE/IT/SYBTECH /SEM-III/DS/2026-27
+Somaiya Vidyavihar University
+Breadth-First Search traverses a graph level-by-level. In an unweighted communication
+network, path cost corresponds directly to hop count. Because BFS explores all nodes at
+distance before distance , the first time a destination ground station is reached, the route taken
+is guaranteed to be the shortest path with the minimum number of relay hops, minimizing store-
+and-forward latency
+
+
+Experiment 7
+Sort telemetry packets by timestamp and analyze the efficiency of binary search for retrieving mission events.
+#include <stdio.h>
+#include <string.h>
+
+struct TelemetryPacket {
+    int packetId;
+    long long timestamp;
+    char event[50];
+};
+
+void swap(struct TelemetryPacket *a, struct TelemetryPacket *b) {
+    struct TelemetryPacket temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+int partition(struct TelemetryPacket arr[], int low, int high) {
+    long long pivot = arr[high].timestamp;
+    int i = low - 1;
+
+    for (int j = low; j < high; j++) {
+        if (arr[j].timestamp <= pivot) {
+            i++;
+            swap(&arr[i], &arr[j]);
+        }
+    }
+    swap(&arr[i + 1], &arr[high]);
+    return i + 1;
+}
+
+void quickSort(struct TelemetryPacket arr[], int low, int high) {
+    if (low < high) {
+        int pi = partition(arr, low, high);
+        quickSort(arr, low, pi - 1);
+        quickSort(arr, pi + 1, high);
+    }
+}
+
+int binarySearch(struct TelemetryPacket arr[], int min, int max, long long key) {
+    if (max < min) {
+        return -1;
+    }
+
+    int mid = min + (max - min) / 2;
+
+    if (arr[mid].timestamp > key) {
+        return binarySearch(arr, min, mid - 1, key);
+    } else if (arr[mid].timestamp < key) {
+        return binarySearch(arr, mid + 1, max, key);
+    } else {
+        return mid;
+    }
+}
+
+int main() {
+    int n;
+    printf("Enter number of telemetry packets: ");
+    if (scanf("%d", &n) != 1 || n <= 0) {
+        return 0;
+    }
+
+    struct TelemetryPacket packets[100];
+
+    for (int i = 0; i < n; i++) {
+        printf("Enter Packet ID, Timestamp (epoch/ms), and Event Description: ");
+        scanf("%d %lld %s", &packets[i].packetId, &packets[i].timestamp, packets[i].event);
+    }
+
+    quickSort(packets, 0, n - 1);
+
+    printf("\n--- Sorted Telemetry Log ---\n");
+    printf("%-12s %-16s %-25s\n", "Packet ID", "Timestamp", "Mission Event");
+    for (int i = 0; i < n; i++) {
+        printf("%-12d %-16lld %-25s\n", packets[i].packetId, packets[i].timestamp, packets[i].event);
+    }
+
+    long long queryTimestamp;
+    printf("\nEnter timestamp to retrieve mission event: ");
+    scanf("%lld", &queryTimestamp);
+
+    int index = binarySearch(packets, 0, n - 1, queryTimestamp);
+
+    if (index != -1) {
+        printf("\nEvent Located:\n");
+        printf("Packet ID: %d\n", packets[index].packetId);
+        printf("Timestamp: %lld\n", packets[index].timestamp);
+        printf("Event:     %s\n", packets[index].event);
+    } else {
+        printf("\nNo telemetry packet found for timestamp %lld.\n", queryTimestamp);
+    }
+
+    return 0;
+}
+Efficiency Analysis of Binary Search for Mission Events1. Time ComplexityBest-Case Time Complexity — $O(1)$: Occurs when the target timestamp aligns exactly with the median element of the telemetry array during the initial evaluation.Worst-Case Time Complexity — $O(\log_2 n)$: Occurs when the event timestamp resides at the extreme ends of the array or does not exist. The search space is halved after each comparison step ($n, n/2, n/4, \dots, 1$).Average-Case Time Complexity — $O(\log_2 n)$: The expected number of comparisons across all uniformly distributed target timestamps is approximately $\log_2 n - 1$.2. Space ComplexityRecursive Binary Search: Requires $O(\log_2 n)$ auxiliary space on the call stack due to recursive function frames.Iterative Binary Search: Can reduce stack overhead to $O(1)$ auxiliary space, which is critical for embedded onboard spacecraft computers with constrained stack memory.3. Operational Performance vs. Linear SearchIn space mission data acquisition, spacecraft and ground stations process telemetry streams containing millions of sensor readings and event markers.MetricLinear Search (O(n))Binary Search (O(log2​n))Speedup Factor (n=106)Comparisons for $n = 10^3$Up to $1,000$At most $10$$\approx 100\times$Comparisons for $n = 10^6$Up to $1,000,000$At most $20$$\approx 50,000\times$Comparisons for $n = 10^9$Up to $1,000,000,000$At most $30$$\approx 3.33 \times 10^7\times$4. Amortized Cost and Practical Utility in Mission OperationsAmortization Over Repeated Queries: Telemetry streams arrive out of sequence due to transmission latency, routing path variations, or ground station handoffs. Sorting requires an upfront cost of $O(n \log n)$ via QuickSort or MergeSort. For $k$ independent anomaly queries or event investigations, the total operational cost is:$$\text{Total Cost} = O(n \log n + k \log n) = O((n + k) \log n)$$In comparison, performing unsorted linear scans across $k$ queries costs $O(k \cdot n)$. Whenever $k \gg 1$, sorting followed by repeated binary searches offers an exponential reduction in processing time.Deterministic Bounds for Real-Time Systems: Unlike linear search, where lookup latency varies unpredictably between $1$ and $n$ clock cycles, binary search guarantees completion within $\lceil \log_2 n \rceil + 1$ iterations. This predictable worst-case runtime ensures strict adherence to hard real-time deadlines during time-critical spacecraft telemetry anomaly triage.
+
+
+Experiment 8
+Design a hash table for telemetry packet indexing and explain how hashing improves onboard communication efficiency.
+#include <stdio.h>
+#include <stdlib.h>
+
+#define SIZE 10
+
+struct TelemetryPacket {
+    int packetId;
+    int payloadData;
+    int status;
+};
+
+struct TelemetryPacket hashTable[SIZE];
+
+int hashCode(int key) {
+    return key % SIZE;
+}
+
+void initTable() {
+    for (int i = 0; i < SIZE; i++) {
+        hashTable[i].packetId = -1;
+        hashTable[i].payloadData = 0;
+        hashTable[i].status = 0;
+    }
+}
+
+int insertPacket(int key, int data) {
+    int index = hashCode(key);
+    int initialIndex = index;
+
+    do {
+        if (hashTable[index].status == 0 || hashTable[index].status == -1) {
+            hashTable[index].packetId = key;
+            hashTable[index].payloadData = data;
+            hashTable[index].status = 1;
+            return index;
+        }
+        index = (index + 1) % SIZE;
+    } while (index != initialIndex);
+
+    return -1;
+}
+
+int searchPacket(int key) {
+    int index = hashCode(key);
+    int initialIndex = index;
+
+    do {
+        if (hashTable[index].status == 0) {
+            return -1;
+        }
+        if (hashTable[index].status == 1 && hashTable[index].packetId == key) {
+            return index;
+        }
+        index = (index + 1) % SIZE;
+    } while (index != initialIndex);
+
+    return -1;
+}
+
+int deletePacket(int key) {
+    int index = searchPacket(key);
+    if (index != -1) {
+        hashTable[index].status = -1;
+        return 1;
+    }
+    return 0;
+}
+
+void displayTable() {
+    printf("\nSlot\tPacket ID\tPayload Data\tStatus\n");
+    for (int i = 0; i < SIZE; i++) {
+        printf("%d\t", i);
+        if (hashTable[i].status == 1) {
+            printf("%d\t\t%d\t\tOccupied\n", hashTable[i].packetId, hashTable[i].payloadData);
+        } else if (hashTable[i].status == -1) {
+            printf("Dummy\t\t-\t\tDeleted\n");
+        } else {
+            printf("Empty\t\t-\t\tFree\n");
+        }
+    }
+}
+
+int main() {
+    initTable();
+
+    insertPacket(101, 45);
+    insertPacket(201, 78);
+    insertPacket(111, 92);
+    insertPacket(104, 30);
+    insertPacket(114, 88);
+
+    displayTable();
+
+    int queryKey = 111;
+    int loc = searchPacket(queryKey);
+    if (loc != -1) {
+        printf("\nPacket %d retrieved at slot %d with payload %d\n", queryKey, loc, hashTable[loc].payloadData);
+    } else {
+        printf("\nPacket %d not found\n", queryKey);
+    }
+
+    deletePacket(201);
+    printf("\nAfter deleting Packet 201:");
+    displayTable();
+
+    queryKey = 111;
+    loc = searchPacket(queryKey);
+    if (loc != -1) {
+        printf("\nPacket %d retrieved at slot %d with payload %d\n", queryKey, loc, hashTable[loc].payloadData);
+    } else {
+        printf("\nPacket %d not found\n", queryKey);
+    }
+
+    return 0;
+}
+
+Hash Table Architecture for Telemetry DataKey-Value Mapping: Telemetry packets are identified by a unique packetId (such as an Application Process Identifier or Sequence Number) mapped to internal storage slots using the modulo division method: $\text{Index} = \text{hash}(key) = key \pmod{\text{SIZE}}$.   Collision Resolution via Closed Hashing (Open Addressing): When two telemetry packets yield the same slot index ($h(k_1) = h(k_2)$), linear probing increments cyclically across the array as $(index + 1) \pmod{\text{SIZE}}$ until an empty or deleted slot is located.   Circular Array Utilization: Using a circular array prevents linear addressing overflow and optimizes memory utilization within fixed hardware buffers.   Dummy Marker Deletion: Deleted slots are tagged with a dummy status flag ($-1$) rather than fully resetting to empty ($0$). This maintains search probe chains so that packets stored downstream from collisions remain reachable.   Impact of Hashing on Onboard Communication Efficiency1. Constant Time Retrieval ($O(1)$ Complexity)Searching via linear search requires $O(n)$ time, while binary search requires $O(\log_2 n)$ and demands an explicitly sorted dataset. Telemetry streams operate in real time where sorting imposes significant CPU overhead. Hashing performs insertions, deletions, and retrievals in $O(1)$ average time, enabling spacecraft processors to ingest high-frequency telemetry without compute bottlenecks.   MetricLinear Search   PDFBinary Search   PDFHash Table (Closed Hashing)   PDFSearch Time (Average)$O(n)$$O(\log_2 n)$$O(1)$Search Time (Worst)$O(n)$$O(\log_2 n)$$O(n)$ (when saturated)Pre-sorting RequiredNoYesNoLookup Scaling FactorScales with packet volumeScales logarithmicallyIndependent of packet volume2. Rapid Packet Demultiplexing and RoutingSpacecraft command and data handling (C&DH) systems process simultaneous streams from navigation sensors, thermal monitors, and payload instruments. An indexed hash table allows the onboard flight software to instantly route incoming telemetry frames to their dedicated handling subroutines via packet IDs in direct $O(1)$ operations, eliminating linear packet buffer scans.3. Real-Time Packet Deduplication and Sequence VerificationCommunication uplinks and downlinks encounter signal degradation and transmission retries. As packets arrive at the onboard receiver:The hash table stores recently received packet sequence IDs.A incoming packet ID is evaluated in $O(1)$ time to check if it already exists in the buffer.Duplicate packets are dropped immediately, and missing packet sequences are flagged without delaying real-time telemetry downlink windows.4. Deterministic Buffer Memory FootprintUsing a circular array-based hash table guarantees a strictly bounded static memory allocation. Onboard real-time operating systems (RTOS) avoid dynamic heap allocations (malloc), which risk memory leaks and pointer fragmentation during multi-year deep space missions. The fixed array boundary provides deterministic memory access suited for flight-critical firmware
