@@ -26,6 +26,8 @@ interface QueuePacket {
   payload_data: string
 }
 
+import { fetchSatnogsTelemetry } from "@/lib/satnogsClient"
+
 const MAX_PACKETS = 10
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
 
@@ -112,38 +114,35 @@ export function Exp4CircularQueue() {
     setSatnogsLoading(true)
     setStatusMsg("Querying SatNOGS DB for live telemetry downlink...")
     try {
-      const res = await fetch(`${API_BASE}/api/satnogs/telemetry?limit=5`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data.packets && data.packets.length > 0) {
-          const sample = data.packets[Math.floor(Math.random() * data.packets.length)]
-          const targetSlot = rear
-          const newPacket: QueuePacket = {
-            id: sample.packet_id % 10000,
-            timestamp: sample.timestamp,
-            voltage: parseFloat((sample.battery_status / 24.0).toFixed(2)),
-            temperature: parseFloat((20.0 + (sample.packet_id % 150) * 0.1).toFixed(1)),
-            payload_data: `${sample.ground_station.slice(0, 14)}_${sample.transmitter_mode}`
-          }
-
-          setActiveSlotPulse(targetSlot)
-          setBuffer((prev) => {
-            const copy = [...prev]
-            copy[targetSlot] = newPacket
-            return copy
-          })
-
-          const nextRear = (rear + 1) % MAX_PACKETS
-          if (nextRear === 0 && rear === MAX_PACKETS - 1) {
-            setWrapMessage("REAR WRAPPED AROUND TO SLOT 0")
-            setTimeout(() => setWrapMessage(null), 3500)
-          }
-
-          setRear(nextRear)
-          setCount((c) => c + 1)
-          setStatusMsg(`SatNOGS packet #${newPacket.id} ingested at circular slot [${targetSlot}]. rear = ${nextRear}`)
-          setTimeout(() => setActiveSlotPulse(null), 500)
+      const data = await fetchSatnogsTelemetry(5)
+      if (data.packets && data.packets.length > 0) {
+        const sample = data.packets[Math.floor(Math.random() * data.packets.length)]
+        const targetSlot = rear
+        const newPacket: QueuePacket = {
+          id: sample.packet_id % 10000,
+          timestamp: sample.timestamp,
+          voltage: parseFloat((sample.battery_status / 24.0).toFixed(2)),
+          temperature: parseFloat((20.0 + (sample.packet_id % 150) * 0.1).toFixed(1)),
+          payload_data: `${sample.ground_station.slice(0, 14)}_${sample.transmitter_mode}`
         }
+
+        setActiveSlotPulse(targetSlot)
+        setBuffer((prev) => {
+          const copy = [...prev]
+          copy[targetSlot] = newPacket
+          return copy
+        })
+
+        const nextRear = (rear + 1) % MAX_PACKETS
+        if (nextRear === 0 && rear === MAX_PACKETS - 1) {
+          setWrapMessage("REAR WRAPPED AROUND TO SLOT 0")
+          setTimeout(() => setWrapMessage(null), 3500)
+        }
+
+        setRear(nextRear)
+        setCount((c) => c + 1)
+        setStatusMsg(`SatNOGS packet #${newPacket.id} ingested at circular slot [${targetSlot}]. rear = ${nextRear}`)
+        setTimeout(() => setActiveSlotPulse(null), 500)
       }
     } catch {
       setStatusMsg("Failed to connect to SatNOGS endpoint")

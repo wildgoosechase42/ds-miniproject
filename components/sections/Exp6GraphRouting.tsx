@@ -14,6 +14,8 @@ import {
   Globe
 } from "lucide-react"
 
+import { fetchSatnogsTelemetry } from "@/lib/satnogsClient"
+
 const emptySubscribe = () => () => {}
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
 
@@ -145,26 +147,23 @@ export function Exp6GraphRouting() {
     setSatnogsLoading(true)
     setStatusMsg("Querying SatNOGS global network for active ground stations & satellites...")
     try {
-      const res = await fetch(`${API_BASE}/api/satnogs/telemetry?limit=5`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data.packets && data.packets.length >= 2) {
-          const gs0Name = data.packets[0]?.ground_station || "Somaiya GS"
-          const gs4Name = data.packets[1]?.ground_station || "SatNOGS Partner"
-          const sat1Name = `NORAD #${data.packets[0]?.norad_cat_id || 68635}`
-          const sat2Name = `NORAD #${data.packets[1]?.norad_cat_id || 60083}`
+      const data = await fetchSatnogsTelemetry(5)
+      if (data.packets && data.packets.length >= 2) {
+        const gs0Name = data.packets[0]?.ground_station || "Somaiya GS"
+        const gs4Name = data.packets[1]?.ground_station || "SatNOGS Partner"
+        const sat1Name = `NORAD #${data.packets[0]?.norad_cat_id || 68635}`
+        const sat2Name = `NORAD #${data.packets[1]?.norad_cat_id || 60083}`
 
-          const updated: GraphNode[] = [
-            { id: 0, label: "GS 0", type: "GROUND_STATION", name: `SatNOGS ${gs0Name}`, x: 80, y: 160, neighbors: [1, 2] },
-            { id: 1, label: "SAT 1", type: "LEO_SATELLITE", name: `Active Satellite ${sat1Name}`, x: 260, y: 70, neighbors: [0, 4] },
-            { id: 2, label: "SAT 2", type: "LEO_SATELLITE", name: `Active Satellite ${sat2Name}`, x: 260, y: 250, neighbors: [0, 3] },
-            { id: 3, label: "SAT 3", type: "LEO_SATELLITE", name: "SomaiyaSat-3 Mesh", x: 440, y: 250, neighbors: [2, 4] },
-            { id: 4, label: "GS 4", type: "GROUND_STATION", name: `SatNOGS ${gs4Name}`, x: 620, y: 160, neighbors: [1, 3] }
-          ]
-          setActiveNodes(updated)
-          setSelectedNode(updated[0])
-          setStatusMsg(`Synced topology with SatNOGS DB: Stations '${gs0Name}' and '${gs4Name}' linked`)
-        }
+        const updated: GraphNode[] = [
+          { id: 0, label: "GS 0", type: "GROUND_STATION", name: `SatNOGS ${gs0Name}`, x: 80, y: 160, neighbors: [1, 2] },
+          { id: 1, label: "SAT 1", type: "LEO_SATELLITE", name: `Active Satellite ${sat1Name}`, x: 260, y: 70, neighbors: [0, 4] },
+          { id: 2, label: "SAT 2", type: "LEO_SATELLITE", name: `Active Satellite ${sat2Name}`, x: 260, y: 250, neighbors: [0, 3] },
+          { id: 3, label: "SAT 3", type: "LEO_SATELLITE", name: "SomaiyaSat-3 Mesh", x: 440, y: 250, neighbors: [2, 4] },
+          { id: 4, label: "GS 4", type: "GROUND_STATION", name: `SatNOGS ${gs4Name}`, x: 620, y: 160, neighbors: [1, 3] }
+        ]
+        setActiveNodes(updated)
+        setSelectedNode(updated[0])
+        setStatusMsg(`Synced topology with SatNOGS DB: Stations '${gs0Name}' and '${gs4Name}' linked`)
       }
     } catch {
       setStatusMsg("Failed to connect to SatNOGS DB endpoint")

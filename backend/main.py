@@ -201,7 +201,7 @@ def fetch_satnogs(start_index: int = 0, limit: int = 25, cursor: Optional[str] =
     packets = []
     next_cursor = None
     try:
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             link_header = resp.headers.get("Link", "")
             if link_header and 'rel="next"' in link_header:
@@ -210,7 +210,7 @@ def fetch_satnogs(start_index: int = 0, limit: int = 25, cursor: Optional[str] =
                         m = re.search(r'cursor=([^&>]+)', part)
                         if m:
                             next_cursor = m.group(1)
-        for i, obs in enumerate(data):
+        for i, obs in enumerate(data[:limit]):
             curr_slot = (start_index + i) % 1024
             obs_id = int(obs.get("id", curr_slot + 1))
             start_str = obs.get("start", "")

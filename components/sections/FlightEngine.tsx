@@ -39,15 +39,32 @@ export function FlightEngine() {
   const root = useRef<HTMLElement>(null)
   const [activeTab, setActiveTab] = useState<number>(1)
   const [apiOnline, setApiOnline] = useState<boolean>(false)
+  const [engineMode, setEngineMode] = useState<"c_core" | "cloud" | "offline">("offline")
 
   const checkHealth = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/api/exp4/status`)
-      if (res.ok) setApiOnline(true)
-      else setApiOnline(false)
+      if (res.ok) {
+        const data = await res.json()
+        setApiOnline(true)
+        setEngineMode(data.engine === "cloud_runtime" ? "cloud" : "c_core")
+        return
+      }
     } catch {
-      setApiOnline(false)
+      // Backend on API_BASE offline, try Next.js route
     }
+
+    try {
+      const fallbackRes = await fetch(`/api/exp4/status`)
+      if (fallbackRes.ok) {
+        setApiOnline(true)
+        setEngineMode("cloud")
+        return
+      }
+    } catch {}
+
+    setApiOnline(false)
+    setEngineMode("offline")
   }, [])
 
   useEffect(() => {
@@ -95,12 +112,20 @@ export function FlightEngine() {
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="mono-label text-xs">C Core Status:</span>
+            <span className="mono-label text-xs">Engine Status:</span>
             <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-mono uppercase tracking-wider ${
-              apiOnline ? "bg-[#3ddc97]/15 text-[#3ddc97] border border-[#3ddc97]/30" : "bg-[#ff5c7a]/15 text-[#ff5c7a] border border-[#ff5c7a]/30"
+              apiOnline
+                ? (engineMode === "c_core" ? "bg-[#3ddc97]/15 text-[#3ddc97] border border-[#3ddc97]/30" : "bg-[#3d6bff]/15 text-[#3d6bff] border border-[#3d6bff]/30")
+                : "bg-[#ff5c7a]/15 text-[#ff5c7a] border border-[#ff5c7a]/30"
             }`}>
-              <span className={`size-2 rounded-full ${apiOnline ? "bg-[#3ddc97] animate-pulse" : "bg-[#ff5c7a]"}`} />
-              {apiOnline ? "Engine Online (:8000)" : "Connecting..."}
+              <span className={`size-2 rounded-full ${
+                apiOnline
+                  ? (engineMode === "c_core" ? "bg-[#3ddc97] animate-pulse" : "bg-[#3d6bff] animate-pulse")
+                  : "bg-[#ff5c7a]"
+              }`} />
+              {apiOnline
+                ? (engineMode === "c_core" ? "C Core Online (:8000)" : "Cloud Runtime Active")
+                : "Connecting..."}
             </span>
           </div>
         </div>

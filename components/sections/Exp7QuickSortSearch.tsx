@@ -14,6 +14,8 @@ import {
   Globe
 } from "lucide-react"
 
+import { fetchSatnogsTelemetry } from "@/lib/satnogsClient"
+
 const emptySubscribe = () => () => {}
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
 
@@ -173,24 +175,21 @@ export function Exp7QuickSortSearch() {
     setSatnogsLoading(true)
     setStatusMsg("Querying SatNOGS DB for real orbital pass telemetry frames...")
     try {
-      const res = await fetch(`${API_BASE}/api/satnogs/telemetry?limit=${datasetSize}`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data.packets && data.packets.length > 0) {
-          const liveData: TelemetryItem[] = data.packets.map((p: { packet_id: number; timestamp: number; ground_station: string; transmitter_mode: string }) => ({
-            packet_id: `P${p.packet_id % 10000}`,
-            timestamp: p.timestamp,
-            event: `${p.ground_station.slice(0, 14)} (${p.transmitter_mode})`
-          }))
-          setData(liveData)
-          setIsSorted(false)
-          setPivotIdx(null)
-          setSearchPointers(null)
-          setMatchedItem(null)
-          setSearchComparisons(null)
-          setSearchTs(String(liveData[Math.floor(liveData.length / 2)].timestamp))
-          setStatusMsg(`Loaded ${liveData.length} real SatNOGS telemetry packets in raw timestamp order`)
-        }
+      const data = await fetchSatnogsTelemetry(datasetSize)
+      if (data.packets && data.packets.length > 0) {
+        const liveData: TelemetryItem[] = data.packets.map((p) => ({
+          packet_id: `P${p.packet_id % 10000}`,
+          timestamp: p.timestamp,
+          event: `${p.ground_station.slice(0, 14)} (${p.transmitter_mode})`
+        }))
+        setData(liveData)
+        setIsSorted(false)
+        setPivotIdx(null)
+        setSearchPointers(null)
+        setMatchedItem(null)
+        setSearchComparisons(null)
+        setSearchTs(String(liveData[Math.floor(liveData.length / 2)].timestamp))
+        setStatusMsg(`Loaded ${liveData.length} real SatNOGS telemetry packets in raw timestamp order`)
       }
     } catch {
       setStatusMsg("Failed to connect to SatNOGS DB endpoint")

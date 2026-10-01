@@ -18,6 +18,8 @@ import {
   Globe
 } from "lucide-react"
 
+import { fetchSatnogsTelemetry } from "@/lib/satnogsClient"
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
 
 interface BSTNode {
@@ -277,29 +279,26 @@ export function Exp5TimelineBST() {
     setSatnogsLoading(true)
     setStatusMsg("Querying SatNOGS global network for orbital passes & timeline...")
     try {
-      const res = await fetch(`${API_BASE}/api/satnogs/telemetry?limit=7`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data.packets && data.packets.length > 0) {
-          let newTree = tree
-          const steps: string[] = ["INGESTING SATNOGS OBSERVATION TIMELINE INTO BST:"]
-          data.packets.forEach((p: { packet_id: number; timestamp: number; ground_station: string; transmitter_mode: string; battery_status: number }) => {
-            const shortTs = p.timestamp % 10000
-            const eventDesc = `SatNOGS Pass (${p.ground_station.slice(0, 10)})`
-            const isAnomaly = p.battery_status < 85.0
-            const nodeToInsert: BSTNode = {
-              timestamp: shortTs,
-              event: isAnomaly ? `⚠ Low Batt (${p.battery_status}%)` : eventDesc,
-              anomaly: isAnomaly,
-              left: null,
-              right: null
-            }
-            newTree = insertNode(newTree, nodeToInsert, steps)
-          })
-          setTree(newTree)
-          setComparisonSteps(steps.slice(0, 8))
-          setStatusMsg(`Ingested ${data.packets.length} real SatNOGS pass events into Binary Search Tree`)
-        }
+      const data = await fetchSatnogsTelemetry(7)
+      if (data.packets && data.packets.length > 0) {
+        let newTree = tree
+        const steps: string[] = ["INGESTING SATNOGS OBSERVATION TIMELINE INTO BST:"]
+        data.packets.forEach((p) => {
+          const shortTs = p.timestamp % 10000
+          const eventDesc = `SatNOGS Pass (${p.ground_station.slice(0, 10)})`
+          const isAnomaly = p.battery_status < 85.0
+          const nodeToInsert: BSTNode = {
+            timestamp: shortTs,
+            event: isAnomaly ? `⚠ Low Batt (${p.battery_status}%)` : eventDesc,
+            anomaly: isAnomaly,
+            left: null,
+            right: null
+          }
+          newTree = insertNode(newTree, nodeToInsert, steps)
+        })
+        setTree(newTree)
+        setComparisonSteps(steps.slice(0, 8))
+        setStatusMsg(`Ingested ${data.packets.length} real SatNOGS pass events into Binary Search Tree`)
       }
     } catch {
       setStatusMsg("Failed to connect to SatNOGS DB endpoint")

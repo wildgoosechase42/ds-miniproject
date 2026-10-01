@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:backend": "./backend/.venv/bin/python -m uvicorn main:app --app-dir backend --port 8000 --reload",
+    "dev:all": "./start.sh",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

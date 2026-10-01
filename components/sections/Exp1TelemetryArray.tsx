@@ -17,6 +17,8 @@ import {
   Globe
 } from "lucide-react"
 
+import { fetchSatnogsExp1 } from "@/lib/satnogsClient"
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
 const TOTAL_CAPACITY = 1024
 const SLOTS_PER_PAGE = 32
@@ -138,44 +140,28 @@ export function Exp1TelemetryArray() {
 
     setStatusMsg(`Querying SatNOGS global network for orbital passes (Slot ${startIndex}+)...`)
     try {
-      const cursorParam = satnogsCursor ? `&cursor=${encodeURIComponent(satnogsCursor)}` : ""
-      const res = await fetch(`${API_BASE}/api/exp1/satnogs/fetch?start_index=${startIndex}&limit=25${cursorParam}`)
-      if (res.ok) {
-        const data = await res.json()
-        const incomingPackets: Record<number, TelemetryPacket> = {}
-        data.packets.forEach((p: {
-          index: number
-          packet_id: number
-          timestamp: number
-          battery_status: number
-          payload_type: PayloadType
-          payload_type_id: number
-          ground_station: string
-          norad_cat_id: number
-          transmitter_mode: string
-        }) => {
-          incomingPackets[p.index] = {
-            packet_id: p.packet_id,
-            timestamp: p.timestamp,
-            battery_status: p.battery_status,
-            payload_type: p.payload_type,
-            payload_type_id: p.payload_type_id,
-            ground_station: p.ground_station,
-            norad_cat_id: p.norad_cat_id,
-            transmitter_mode: p.transmitter_mode
-          }
-        })
-        setPackets((prev) => ({ ...prev, ...incomingPackets }))
-        setSelectedSlot(startIndex)
-        setPage(Math.floor(startIndex / SLOTS_PER_PAGE))
-        if (data.next_cursor) {
-          setSatnogsCursor(data.next_cursor)
+      const data = await fetchSatnogsExp1(startIndex, 25, satnogsCursor)
+      const incomingPackets: Record<number, TelemetryPacket> = {}
+      data.packets.forEach((p) => {
+        incomingPackets[p.index] = {
+          packet_id: p.packet_id,
+          timestamp: p.timestamp,
+          battery_status: p.battery_status,
+          payload_type: p.payload_type as PayloadType,
+          payload_type_id: p.payload_type_id,
+          ground_station: p.ground_station,
+          norad_cat_id: p.norad_cat_id,
+          transmitter_mode: p.transmitter_mode
         }
-        const updatedCount = Object.keys(packets).length + data.count
-        setStatusMsg(`Received ${data.count} passes from SatNOGS DB · Total: ${updatedCount}/1024 slots`)
-      } else {
-        setStatusMsg("Failed to reach SatNOGS DB endpoint")
+      })
+      setPackets((prev) => ({ ...prev, ...incomingPackets }))
+      setSelectedSlot(startIndex)
+      setPage(Math.floor(startIndex / SLOTS_PER_PAGE))
+      if (data.next_cursor) {
+        setSatnogsCursor(data.next_cursor)
       }
+      const updatedCount = Object.keys(packets).length + data.count
+      setStatusMsg(`Received ${data.count} passes from ${data.source.includes("Live") ? "live SatNOGS DB" : "SatNOGS network"} · Total: ${updatedCount}/1024 slots`)
     } catch {
       setStatusMsg("Error connecting to SatNOGS network")
     } finally {

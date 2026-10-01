@@ -15,6 +15,8 @@ import {
   Globe
 } from "lucide-react"
 
+import { fetchSatnogsTelemetry } from "@/lib/satnogsClient"
+
 const emptySubscribe = () => () => {}
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
 
@@ -257,38 +259,35 @@ export function Exp8HashIndexer() {
     setSatnogsLoading(true)
     setStatusMsg("Querying SatNOGS database to index live telemetry packets...")
     try {
-      const res = await fetch(`${API_BASE}/api/satnogs/telemetry?limit=5`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data.packets && data.packets.length > 0) {
-          const freshTable: HashSlot[] = Array.from({ length: HASH_SIZE }, (_, i) => ({
-            slot: i,
-            packet_id: null,
-            payload_data: null,
-            status: "EMPTY"
-          }))
+      const data = await fetchSatnogsTelemetry(5)
+      if (data.packets && data.packets.length > 0) {
+        const freshTable: HashSlot[] = Array.from({ length: HASH_SIZE }, (_, i) => ({
+          slot: i,
+          packet_id: null,
+          payload_data: null,
+          status: "EMPTY"
+        }))
 
-          data.packets.slice(0, 5).forEach((p: { packet_id: number; ground_station: string; transmitter_mode: string }) => {
-            const id = p.packet_id % 10000
-            const payload = `${p.ground_station.slice(0, 10)}_${p.transmitter_mode}`
-            const h = id % HASH_SIZE
-            let s = h
-            while (freshTable[s].status === "OCCUPIED") {
-              s = (s + 1) % HASH_SIZE
-            }
-            freshTable[s] = {
-              slot: s,
-              packet_id: id,
-              payload_data: payload,
-              status: "OCCUPIED"
-            }
-          })
+        data.packets.slice(0, 5).forEach((p) => {
+          const id = p.packet_id % 10000
+          const payload = `${p.ground_station.slice(0, 10)}_${p.transmitter_mode}`
+          const h = id % HASH_SIZE
+          let s = h
+          while (freshTable[s].status === "OCCUPIED") {
+            s = (s + 1) % HASH_SIZE
+          }
+          freshTable[s] = {
+            slot: s,
+            packet_id: id,
+            payload_data: payload,
+            status: "OCCUPIED"
+          }
+        })
 
-          setTable(freshTable)
-          setSearchKey(String(data.packets[0].packet_id % 10000))
-          addLog(`SATNOGS: Ingested & hashed ${Math.min(5, data.packets.length)} live satellite packets`)
-          setStatusMsg(`Indexed SatNOGS packets with linear probing collision resolution`)
-        }
+        setTable(freshTable)
+        setSearchKey(String(data.packets[0].packet_id % 10000))
+        addLog(`SATNOGS: Ingested & hashed ${Math.min(5, data.packets.length)} live satellite packets`)
+        setStatusMsg(`Indexed SatNOGS packets with linear probing collision resolution`)
       }
     } catch {
       setStatusMsg("Failed to connect to SatNOGS DB endpoint")

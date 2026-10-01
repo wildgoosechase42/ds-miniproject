@@ -57,6 +57,8 @@ const TASK_PRESETS = [
   { type: "FLASH_CRC_AUDIT", priority: 1, desc: "NOR flash firmware integrity check", color: "#3d6bff" }
 ]
 
+import { fetchSatnogsTelemetry } from "@/lib/satnogsClient"
+
 const MAX_STACK_CAPACITY = 10
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
 
@@ -124,30 +126,27 @@ export function Exp3TaskStack() {
     setSatnogsLoading(true)
     setStatusMsg("Querying SatNOGS for active ground station observation schedule...")
     try {
-      const res = await fetch(`${API_BASE}/api/satnogs/telemetry?limit=5`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data.packets && data.packets.length > 0) {
-          const p = data.packets[Math.floor(Math.random() * data.packets.length)]
-          const satTask: TaskItem = {
-            task_id: p.packet_id % 10000,
-            task_type: `SATNOGS_${p.ground_station.replace(/[^A-Za-z0-9]/g, "_").slice(0, 16)}`,
-            priority: p.payload_type_id || 2,
-            status: "EXECUTING",
-            description: `SatNOGS live pass at ${p.ground_station} (NORAD #${p.norad_cat_id}, ${p.transmitter_mode})`,
-            color: "#3ddc97"
-          }
-
-          setAnimatingAction(`push-${satTask.task_id}`)
-          setStack((prev) => {
-            const updated = prev.map((item, idx) => (idx === 0 ? { ...item, status: "PAUSED" as const } : item))
-            return [satTask, ...updated]
-          })
-
-          logOperation(`PUSH Task ${satTask.task_id} [${satTask.task_type} · SatNOGS Pass]`)
-          setStatusMsg(`SatNOGS ground station pass task #${satTask.task_id} pushed to TOP of stack`)
-          setTimeout(() => setAnimatingAction(null), 600)
+      const data = await fetchSatnogsTelemetry(5)
+      if (data.packets && data.packets.length > 0) {
+        const p = data.packets[Math.floor(Math.random() * data.packets.length)]
+        const satTask: TaskItem = {
+          task_id: p.packet_id % 10000,
+          task_type: `SATNOGS_${p.ground_station.replace(/[^A-Za-z0-9]/g, "_").slice(0, 16)}`,
+          priority: p.payload_type_id || 2,
+          status: "EXECUTING",
+          description: `SatNOGS live pass at ${p.ground_station} (NORAD #${p.norad_cat_id}, ${p.transmitter_mode})`,
+          color: "#3ddc97"
         }
+
+        setAnimatingAction(`push-${satTask.task_id}`)
+        setStack((prev) => {
+          const updated = prev.map((item, idx) => (idx === 0 ? { ...item, status: "PAUSED" as const } : item))
+          return [satTask, ...updated]
+        })
+
+        logOperation(`PUSH Task ${satTask.task_id} [${satTask.task_type} · SatNOGS Pass]`)
+        setStatusMsg(`SatNOGS ground station pass task #${satTask.task_id} pushed to TOP of stack`)
+        setTimeout(() => setAnimatingAction(null), 600)
       }
     } catch {
       setStatusMsg("Failed to connect to SatNOGS endpoint")

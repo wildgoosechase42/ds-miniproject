@@ -23,6 +23,8 @@ import {
   Globe
 } from "lucide-react"
 
+import { fetchSatnogsTelemetry } from "@/lib/satnogsClient"
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
 
 interface DynamicNode {
@@ -132,36 +134,33 @@ export function Exp2DynamicBuffer() {
     setSatnogsLoading(true)
     setStatusMsg("Querying SatNOGS Open Telemetry Network for live orbital packets...")
     try {
-      const res = await fetch(`${API_BASE}/api/satnogs/telemetry?limit=5`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data.packets && data.packets.length > 0) {
-          const sample = data.packets[Math.floor(Math.random() * data.packets.length)]
-          const newAddr = `0x7F${(sample.packet_id % 255).toString(16).toUpperCase().padStart(2, "0")}`
-          const newNode: DynamicNode = {
-            packet_id: sample.packet_id,
-            timestamp: sample.timestamp,
-            sensor_id: sample.payload_type_id || 3,
-            measurement_value: sample.battery_status,
-            mem_address: newAddr,
-            next_address: "NULL"
-          }
-
-          setNodes((prev) => {
-            if (prev.length === 0) return [newNode]
-            const updated = [...prev]
-            updated[updated.length - 1] = {
-              ...updated[updated.length - 1],
-              next_address: newAddr
-            }
-            return [...updated, newNode]
-          })
-
-          setJustEnqueuedId(sample.packet_id)
-          setTimeout(() => setJustEnqueuedId(null), 1000)
-          syncEnqueue(newNode)
-          setStatusMsg(`SatNOGS live packet #${sample.packet_id} (${sample.ground_station}) enqueued to linked list TAIL`)
+      const data = await fetchSatnogsTelemetry(5)
+      if (data.packets && data.packets.length > 0) {
+        const sample = data.packets[Math.floor(Math.random() * data.packets.length)]
+        const newAddr = `0x7F${(sample.packet_id % 255).toString(16).toUpperCase().padStart(2, "0")}`
+        const newNode: DynamicNode = {
+          packet_id: sample.packet_id,
+          timestamp: sample.timestamp,
+          sensor_id: sample.payload_type_id || 3,
+          measurement_value: sample.battery_status,
+          mem_address: newAddr,
+          next_address: "NULL"
         }
+
+        setNodes((prev) => {
+          if (prev.length === 0) return [newNode]
+          const updated = [...prev]
+          updated[updated.length - 1] = {
+            ...updated[updated.length - 1],
+            next_address: newAddr
+          }
+          return [...updated, newNode]
+        })
+
+        setJustEnqueuedId(sample.packet_id)
+        setTimeout(() => setJustEnqueuedId(null), 1000)
+        syncEnqueue(newNode)
+        setStatusMsg(`SatNOGS live packet #${sample.packet_id} (${sample.ground_station}) enqueued to linked list TAIL`)
       }
     } catch {
       setStatusMsg("Failed to connect to SatNOGS DB endpoint")
