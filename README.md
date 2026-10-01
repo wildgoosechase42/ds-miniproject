@@ -1,7 +1,7 @@
 # SomaiyaSat Flight Computing Engine & Ground Control
 
-Link:https://ds-miniproject.vercel.app/
-
+[![Vercel Deployment](https://img.shields.io/badge/Vercel-ds--miniproject.vercel.app-black?logo=vercel)](https://ds-miniproject.vercel.app/)
+[![Render Backend](https://img.shields.io/badge/Render-somaiyasat--backend-46e3b7?logo=render)](https://somaiyasat-backend.onrender.com/docs)
 [![Next.js](https://img.shields.io/badge/Next.js-16.3.6-black?logo=next.js)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-Python_ctypes-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
 [![C](https://img.shields.io/badge/C-libmissionsuite.so-A8B9CC?logo=c)](https://en.wikipedia.org/wiki/C_(programming_language))
@@ -9,6 +9,10 @@ Link:https://ds-miniproject.vercel.app/
 [![License: Academic](https://img.shields.io/badge/License-Academic_Use-blue.svg)](#)
 
 A high-performance in-memory orbital telemetry computing engine and interactive data structures laboratory built for **SomaiyaSat & SomaiyaPod** (PocketQube Mission KJS-SRS-01).
+
+- 🌐 **Live Web Application (Vercel):** [https://ds-miniproject.vercel.app](https://ds-miniproject.vercel.app)
+- 🛰️ **Live Backend API (Render):** [https://somaiyasat-backend.onrender.com](https://somaiyasat-backend.onrender.com)
+- 📖 **Interactive Swagger API Docs:** [https://somaiyasat-backend.onrender.com/docs](https://somaiyasat-backend.onrender.com/docs)
 
 ---
 
@@ -27,15 +31,16 @@ A high-performance in-memory orbital telemetry computing engine and interactive 
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│              Next.js 16 Web Application (:3000)             │
+│          Next.js 16 Web Application (Vercel Cloud)         │
 │   • Three.js 3D Orbital Shells & GSAP Scroll Interactions    │
 │   • Interactive Visualizers for 8 Spacecraft Data Structures│
 │   • Aerospace Telemetry Dock & Responsive Flight Console    │
+│   • Serverless SatNOGS Edge Handlers with Graceful Fallback │
 └──────────────────────────────┬──────────────────────────────┘
                                │ JSON via REST HTTP
 ┌──────────────────────────────▼──────────────────────────────┐
-│                  FastAPI Backend (:8000)                    │
-│   • Asynchronous Telemetry Orchestration                    │
+│           FastAPI Backend (Render Cloud Platform)           │
+│   • Asynchronous Telemetry Orchestration & Slicing          │
 │   • Python ctypes C Foreign Function Interface (FFI)        │
 │   • Live SatNOGS Satellite Database Telemetry Ingestion     │
 └──────────────────────────────┬──────────────────────────────┘
@@ -61,22 +66,22 @@ A high-performance in-memory orbital telemetry computing engine and interactive 
 | **05 · Timeline BST** | Binary Search Tree | Time-Series Query Engine | Chronologically ordered sensor packet storage enabling logarithmic $O(\log n)$ timestamp search and range scans. |
 | **06 · Route BFS** | Directed Graph | Intersatellite Mesh Routing | Breadth-First Search (BFS) computing the minimum-hop routing path through satellite relay nodes to ground stations. |
 | **07 · Search Engine** | QuickSort & Binary Search | Downlink Priority Sorter | In-place partition sorting ordering packets by criticality (Emergency TT&C > Voice > Imagery) for ground downlink. |
-| **08 · Direct Indexer** | Hash Table | Fast Sensor Lookup | Direct hash indexing mapping sensor identifiers to telemetry readings in instantaneous $O(1)$ time with collision handling. |
+| **08 · Direct Indexer** | Hash Table | Fast Sensor Lookup | Direct hash indexing mapping sensor identifiers to telemetry readings in instantaneous $O(1)$ time with linear probing collision handling. |
 
 ---
 
 ## Tech Stack
 
 - **Core Flight Engine:** Pure C (`backend/c_core/mission_suite.c`), compiled as a shared library (`libmissionsuite.so`).
-- **Backend API:** Python 3.12, FastAPI, Uvicorn, Python `ctypes`, SQLite / PostgreSQL cache.
-- **Frontend Framework:** Next.js 16 (App Router), React 19, TypeScript.
+- **Backend API:** Python 3.11/3.12, FastAPI, Uvicorn, Python `ctypes`, Render cloud platform.
+- **Frontend Framework:** Next.js 16 (App Router), React 19, TypeScript, Vercel edge deployment.
 - **Styling & Design System:** Tailwind CSS, JetBrains Mono & Space Grotesk typography, glassmorphism aerospace theme.
-- **3D & Animation:** Three.js, GSAP ScrollTrigger, Lenis smooth scrolling.
-- **Data Source:** SatNOGS Open Satellite Network Telemetry API.
+- **3D & Animation:** Three.js, React Three Fiber, GSAP ScrollTrigger, Lenis smooth scrolling.
+- **Data Source:** SatNOGS Open Satellite Network Telemetry API with automatic offline resilience.
 
 ---
 
-## Getting Started
+## Getting Started Locally
 
 ### Prerequisites
 
@@ -86,9 +91,23 @@ A high-performance in-memory orbital telemetry computing engine and interactive 
 
 ---
 
-### 1. Compile the C Core Library
+### Quick Start (One Command)
 
-Navigate to the C core directory and build the shared library:
+To build the C core and launch both the FastAPI backend and Next.js frontend together:
+
+```bash
+npm run dev:all
+# or: ./start.sh
+```
+
+- Open **[http://localhost:3000](http://localhost:3000)** for the interactive mission console.
+- Open **[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)** for FastAPI interactive Swagger documentation.
+
+---
+
+### Manual Step-by-Step Setup
+
+#### 1. Compile the C Core Library
 
 ```bash
 cd backend/c_core
@@ -96,25 +115,19 @@ gcc -shared -o libmissionsuite.so -fPIC mission_suite.c
 cd ../..
 ```
 
----
-
-### 2. Set Up the Backend
-
-From the project root:
+#### 2. Set Up and Run the Backend
 
 ```bash
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt  # or: pip install fastapi uvicorn requests
+pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
 ```
 
 Verify backend health at: [http://localhost:8000/api/exp4/status](http://localhost:8000/api/exp4/status)
 
----
-
-### 3. Set Up the Frontend
+#### 3. Run the Frontend
 
 In a separate terminal, from the project root:
 
@@ -123,7 +136,27 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+---
+
+## Cloud Deployment
+
+### 1. Backend on Render
+The project includes a Render Blueprint ([`render.yaml`](./render.yaml)) configured for automatic C shared library compilation:
+```yaml
+services:
+  - type: web
+    name: somaiyasat-backend
+    env: python
+    plan: free
+    buildCommand: "gcc -shared -o backend/c_core/libmissionsuite.so -fPIC backend/c_core/mission_suite.c && pip install -r backend/requirements.txt"
+    startCommand: "uvicorn main:app --app-dir backend --host 0.0.0.0 --port $PORT"
+```
+
+### 2. Frontend on Vercel
+Deploy to Vercel and connect your Render backend:
+```env
+NEXT_PUBLIC_API_URL=https://somaiyasat-backend.onrender.com
+```
 
 ---
 
@@ -132,6 +165,10 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ```
 ds-miniproject/
 ├── app/
+│   ├── api/                      # Next.js Serverless API Route Handlers
+│   │   ├── exp1/satnogs/fetch/   # Resilient SatNOGS pass ingestion
+│   │   ├── exp4/status/          # Cloud health check handler
+│   │   └── satnogs/telemetry/    # Direct SatNOGS CORS proxy & fallback
 │   ├── layout.tsx                # Global layout, metadata & favicon
 │   ├── page.tsx                  # Home page assembling all sections
 │   └── globals.css               # Global theme tokens and styles
@@ -140,35 +177,21 @@ ds-miniproject/
 │   │   ├── mission_suite.c       # Pure C data structures implementation
 │   │   ├── mission_suite.h       # C header definitions
 │   │   └── libmissionsuite.so    # Compiled C shared object
-│   └── main.py                   # FastAPI application & ctypes bindings
+│   ├── Dockerfile                # Production container deployment
+│   ├── main.py                   # FastAPI application & ctypes bindings
+│   └── requirements.txt          # Python dependencies
 ├── components/
-│   ├── brand/
-│   │   ├── Brand.tsx             # Wordmark, labels, and typography
-│   │   └── BuildArtwork.tsx      # Engineering blueprint SVGs
-│   ├── layout/
-│   │   ├── TopBar.tsx            # Sticky scroll-triggered navigation bar
-│   │   └── Footer.tsx            # Project metadata and faculty credits
-│   ├── sections/
-│   │   ├── FlightEngine.tsx      # 8-experiment console workspace
-│   │   ├── Exp1TelemetryArray.tsx
-│   │   ├── Exp2DynamicBuffer.tsx
-│   │   ├── Exp3TaskStack.tsx
-│   │   ├── Exp4CircularQueue.tsx
-│   │   ├── Exp5TimelineBST.tsx
-│   │   ├── Exp6GraphRouting.tsx
-│   │   ├── Exp7QuickSortSearch.tsx
-│   │   └── Exp8HashIndexer.tsx
-│   └── three/
-│       ├── HeroScene.tsx         # 3D satellite orbit visualization
-│       └── MiniEarth.tsx         # Interactive globe visualization
+│   ├── brand/                    # Brand typography and blueprint SVGs
+│   ├── layout/                   # TopBar and Footer components
+│   ├── sections/                 # 8 interactive algorithm console sections
+│   └── three/                    # Three.js 3D satellite and Earth models
 ├── lib/
 │   ├── config.ts                 # Project metadata & dimensional specs
+│   ├── satnogsClient.ts          # Resilient SatNOGS client with fallback
 │   ├── lenis.ts                  # Smooth scrolling provider
-│   ├── palette.ts                # Aerospace color definitions
-│   └── utils.ts                  # Classname merging utility
-├── public/
-│   ├── somaiya-logo.png          # Somaiya Vidyavihar University emblem
-│   └── assets/img/               # Generated blueprint schematics
+│   └── palette.ts                # Aerospace color definitions
+├── render.yaml                   # 1-Click Render Cloud Blueprint
+├── start.sh                      # Unified dev launcher script
 └── README.md
 ```
 
