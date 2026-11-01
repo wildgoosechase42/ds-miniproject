@@ -1,23 +1,34 @@
 "use client"
 
-import { useState, useSyncExternalStore, useCallback } from "react"
-import { SectionLabel } from "@/components/brand/Brand"
+import { useState, useSyncExternalStore, useCallback, useRef, useEffect, useMemo } from "react"
+import { cn } from "@/lib/utils"
 import {
   Network,
   Radio,
   Play,
   RotateCcw,
-  CheckCircle2,
-  Cpu,
-  ChevronDown,
-  ChevronUp,
-  Globe
+  Globe,
+  Satellite,
+  Antenna,
 } from "lucide-react"
 
 import { fetchSatnogsTelemetry } from "@/lib/satnogsClient"
+import {
+  Badge,
+  ExperimentHeader,
+  GlassPanel,
+  GlassTile,
+  KeyValue,
+  Label,
+  Metric,
+  PanelHeader,
+  Select,
+  StatusLine,
+  ToolButton,
+  type Tone,
+} from "@/components/sections/flight/ui"
 
 const emptySubscribe = () => () => {}
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
 
 interface GraphNode {
   id: number
@@ -34,16 +45,18 @@ const GRAPH_NODES: GraphNode[] = [
   { id: 1, label: "SAT 1", type: "LEO_SATELLITE", name: "SomaiyaSat-1 (LEO Relay)", x: 260, y: 70, neighbors: [0, 4] },
   { id: 2, label: "SAT 2", type: "LEO_SATELLITE", name: "SomaiyaSat-2 (Polar Mesh)", x: 260, y: 250, neighbors: [0, 3] },
   { id: 3, label: "SAT 3", type: "LEO_SATELLITE", name: "SomaiyaSat-3 (Equatorial)", x: 440, y: 250, neighbors: [2, 4] },
-  { id: 4, label: "GS 4", type: "GROUND_STATION", name: "European GS Partner (Omega)", x: 620, y: 160, neighbors: [1, 3] }
+  { id: 4, label: "GS 4", type: "GROUND_STATION", name: "European GS Partner (Omega)", x: 620, y: 160, neighbors: [1, 3] },
 ]
 
-const ADJ_MATRIX = [
-  [0, 1, 1, 0, 0],
-  [1, 0, 0, 0, 1],
-  [1, 0, 0, 1, 0],
-  [0, 0, 1, 0, 1],
-  [0, 1, 0, 1, 0]
+const EDGES: Array<[number, number]> = [
+  [0, 1],
+  [0, 2],
+  [1, 4],
+  [2, 3],
+  [3, 4],
 ]
+
+const edgeKey = (a: number, b: number) => `${Math.min(a, b)}-${Math.max(a, b)}`
 
 export function Exp6GraphRouting() {
   const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false)
@@ -59,28 +72,54 @@ export function Exp6GraphRouting() {
   const [activeEdge, setActiveEdge] = useState<string | null>(null)
   const [discoveredPath, setDiscoveredPath] = useState<number[] | null>([0, 1, 4])
   const [packetPos, setPacketPos] = useState<number | null>(null)
-  const [statusMsg, setStatusMsg] = useState<string>("Network online: 5 nodes, 5 duplex links ready")
-  const [codeOpen, setCodeOpen] = useState<boolean>(false)
-  const [matrixOpen, setMatrixOpen] = useState<boolean>(false)
+  const [statusMsg, setStatusMsg] = useState<string>("5 nodes · 5 duplex links ready")
+
+  const searchTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const packetTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const clearTimers = useCallback(() => {
+    if (searchTimer.current) clearInterval(searchTimer.current)
+    if (packetTimer.current) clearInterval(packetTimer.current)
+    searchTimer.current = null
+    packetTimer.current = null
+  }, [])
+
+  useEffect(() => clearTimers, [clearTimers])
+
+  const pathEdgeSet = useMemo(() => {
+    const set = new Set<string>()
+    if (!discoveredPath) return set
+    for (let i = 0; i < discoveredPath.length - 1; i++) {
+      set.add(edgeKey(discoveredPath[i], discoveredPath[i + 1]))
+    }
+    return set
+  }, [discoveredPath])
 
   const runBFS = useCallback(() => {
+    clearTimers()
     setIsSearching(true)
     setVisitedNodes([])
     setDiscoveredPath(null)
     setPacketPos(null)
-    setStatusMsg(`BFS SEARCHING: Exploring shortest hop path from ${GRAPH_NODES[sourceId].label} to ${GRAPH_NODES[targetId].label}...`)
+    setActiveEdge(null)
+    setStatusMsg(
+      `BFS · exploring ${GRAPH_NODES[sourceId].label} → ${GRAPH_NODES[targetId].label}`
+    )
 
     const queue: number[] = [sourceId]
     const visited = new Set<number>([sourceId])
     const parent: Record<number, number | null> = { [sourceId]: null }
-    const log: string[] = [`INIT QUEUE: [ ${GRAPH_NODES[sourceId].label} ]`]
+    const log: string[] = [`INIT · queue [ ${GRAPH_NODES[sourceId].label} ]`]
+
+    setBfsQueueLog([...log])
 
     let step = 0
-    const interval = setInterval(() => {
+    searchTimer.current = setInterval(() => {
       if (queue.length === 0) {
-        clearInterval(interval)
+        if (searchTimer.current) clearInterval(searchTimer.current)
+        searchTimer.current = null
         setIsSearching(false)
-        setStatusMsg("Search concluded: No reachable path")
+        setStatusMsg("Search concluded · no reachable path")
         return
       }
 
@@ -88,7 +127,8 @@ export function Exp6GraphRouting() {
       setVisitedNodes((prev) => [...prev, curr])
 
       if (curr === targetId) {
-        clearInterval(interval)
+        if (searchTimer.current) clearInterval(searchTimer.current)
+        searchTimer.current = null
         setIsSearching(false)
 
         const path: number[] = []
@@ -99,19 +139,23 @@ export function Exp6GraphRouting() {
         }
 
         setDiscoveredPath(path)
-        log.push(`DESTINATION REACHED! Shortest route: ${path.map((n) => GRAPH_NODES[n].label).join(" → ")}`)
+        setStatusMsg(
+          `Route locked · ${path.map((n) => GRAPH_NODES[n].label).join(" → ")} · ${path.length - 1} hops`
+        )
+
+        log.push(`REACHED ${GRAPH_NODES[targetId].label} · ${path.length - 1} hops`)
         setBfsQueueLog([...log])
-        setStatusMsg(`ROUTE FOUND: ${path.map((n) => GRAPH_NODES[n].label).join(" → ")} (${path.length - 1} hops)`)
 
         let hop = 0
-        const anim = setInterval(() => {
+        packetTimer.current = setInterval(() => {
           if (hop < path.length) {
             setPacketPos(path[hop])
             hop++
           } else {
-            clearInterval(anim)
+            if (packetTimer.current) clearInterval(packetTimer.current)
+            packetTimer.current = null
           }
-        }, 600)
+        }, 620)
         return
       }
 
@@ -121,18 +165,21 @@ export function Exp6GraphRouting() {
           visited.add(n)
           parent[n] = curr
           queue.push(n)
-          setActiveEdge(`${Math.min(curr, n)}-${Math.max(curr, n)}`)
+          setActiveEdge(edgeKey(curr, n))
         }
       }
 
-      log.push(`VISIT ${GRAPH_NODES[curr].label} → QUEUE: [ ${queue.map((q) => GRAPH_NODES[q].label).join(" ][ ")} ]`)
+      log.push(
+        `VISIT ${GRAPH_NODES[curr].label} · queue [ ${queue.map((q) => GRAPH_NODES[q].label).join(" , ")} ]`
+      )
       setBfsQueueLog([...log])
       step++
-      if (step > 15) clearInterval(interval)
-    }, 550)
-  }, [sourceId, targetId])
+      if (step > 15 && searchTimer.current) clearInterval(searchTimer.current)
+    }, 560)
+  }, [sourceId, targetId, clearTimers])
 
   const handleReset = useCallback(() => {
+    clearTimers()
     setActiveNodes(GRAPH_NODES)
     setSelectedNode(GRAPH_NODES[1])
     setVisitedNodes([])
@@ -140,12 +187,13 @@ export function Exp6GraphRouting() {
     setPacketPos(null)
     setActiveEdge(null)
     setBfsQueueLog([])
-    setStatusMsg("Network graph reset to default state")
-  }, [])
+    setIsSearching(false)
+    setStatusMsg("Topology reset · 5 nodes · 5 links")
+  }, [clearTimers])
 
   const syncSatnogsTopology = async () => {
     setSatnogsLoading(true)
-    setStatusMsg("Querying SatNOGS global network for active ground stations & satellites...")
+    setStatusMsg("Querying SatNOGS for active stations…")
     try {
       const data = await fetchSatnogsTelemetry(5)
       if (data.packets && data.packets.length >= 2) {
@@ -156,445 +204,403 @@ export function Exp6GraphRouting() {
 
         const updated: GraphNode[] = [
           { id: 0, label: "GS 0", type: "GROUND_STATION", name: `SatNOGS ${gs0Name}`, x: 80, y: 160, neighbors: [1, 2] },
-          { id: 1, label: "SAT 1", type: "LEO_SATELLITE", name: `Active Satellite ${sat1Name}`, x: 260, y: 70, neighbors: [0, 4] },
-          { id: 2, label: "SAT 2", type: "LEO_SATELLITE", name: `Active Satellite ${sat2Name}`, x: 260, y: 250, neighbors: [0, 3] },
-          { id: 3, label: "SAT 3", type: "LEO_SATELLITE", name: "SomaiyaSat-3 Mesh", x: 440, y: 250, neighbors: [2, 4] },
-          { id: 4, label: "GS 4", type: "GROUND_STATION", name: `SatNOGS ${gs4Name}`, x: 620, y: 160, neighbors: [1, 3] }
+          { id: 1, label: "SAT 1", type: "LEO_SATELLITE", name: `Active satellite ${sat1Name}`, x: 260, y: 70, neighbors: [0, 4] },
+          { id: 2, label: "SAT 2", type: "LEO_SATELLITE", name: `Active satellite ${sat2Name}`, x: 260, y: 250, neighbors: [0, 3] },
+          { id: 3, label: "SAT 3", type: "LEO_SATELLITE", name: "SomaiyaSat-3 mesh", x: 440, y: 250, neighbors: [2, 4] },
+          { id: 4, label: "GS 4", type: "GROUND_STATION", name: `SatNOGS ${gs4Name}`, x: 620, y: 160, neighbors: [1, 3] },
         ]
         setActiveNodes(updated)
         setSelectedNode(updated[0])
-        setStatusMsg(`Synced topology with SatNOGS DB: Stations '${gs0Name}' and '${gs4Name}' linked`)
+        setStatusMsg(`Topology synced · ${gs0Name} ↔ ${gs4Name}`)
       }
     } catch {
-      setStatusMsg("Failed to connect to SatNOGS DB endpoint")
+      setStatusMsg("SatNOGS topology unavailable · retry")
     } finally {
       setSatnogsLoading(false)
     }
   }
 
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="rounded-xl border border-white/[0.12] bg-white/[0.02] p-5 backdrop-blur-md md:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2.5">
-              <SectionLabel accent>EXPERIMENT 06</SectionLabel>
-              <span className="rounded border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-[#8a8f98]">
-                DATA STRUCTURE / GRAPH / BFS
-              </span>
-              <span className="inline-flex items-center gap-1 font-mono text-[11px] text-[#3ddc97]">
-                <span className="size-1.5 rounded-full bg-[#3ddc97]" />
-                UNWEIGHTED BFS: MINIMUM HOPS GUARANTEED
-              </span>
-            </div>
-            <h3 className="mt-1.5 text-xl font-semibold tracking-tight text-white md:text-2xl">
-              SATELLITE NETWORK ROUTING
-            </h3>
-            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-[#8a8f98] md:text-sm">
-              Model a satellite communication network as a graph and use BFS to discover efficient communication paths.
-            </p>
-          </div>
+  const statusTone: Tone = /unavailable|no reachable/i.test(statusMsg)
+    ? "fair"
+    : discoveredPath
+      ? "good"
+      : isSearching
+        ? "accent"
+        : "muted"
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
+  const hops = discoveredPath ? discoveredPath.length - 1 : 0
+
+  return (
+    <div className="flex flex-col gap-4">
+      <ExperimentHeader
+        code="06"
+        tag="graph · BFS · min hops"
+        title="Satellite Network Routing"
+        state={isSearching ? "BFS EXPLORING" : discoveredPath ? "ROUTE LOCKED" : "IDLE"}
+        stateTone={isSearching ? "accent" : discoveredPath ? "good" : "muted"}
+        actions={
+          <>
+            <ToolButton
+              icon={Globe}
+              variant="live"
               onClick={syncSatnogsTopology}
               disabled={satnogsLoading}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#3ddc97]/40 bg-[#3ddc97]/10 px-3.5 py-2 font-mono text-xs font-semibold text-[#3ddc97] transition hover:bg-[#3ddc97]/20 active:scale-95 disabled:opacity-40"
             >
-              <Globe className={`size-3.5 ${satnogsLoading ? "animate-spin" : ""}`} />
-              <span>{satnogsLoading ? "SYNCING..." : "SYNC SATNOGS STATIONS"}</span>
-            </button>
-
-            <button
+              {satnogsLoading ? "Syncing" : "Sync SatNOGS"}
+            </ToolButton>
+            <ToolButton
+              icon={Play}
+              variant="primary"
               onClick={runBFS}
               disabled={mounted ? isSearching : false}
               suppressHydrationWarning
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#3d6bff] px-4 py-2 font-mono text-xs font-semibold text-white shadow-md shadow-[#3d6bff]/25 transition hover:bg-[#3d6bff]/90 active:scale-95 disabled:opacity-40"
             >
-              <Play className="size-3.5 fill-current" />
-              <span>{isSearching ? "BFS SEARCHING..." : "[ FIND SHORTEST ROUTE ]"}</span>
-            </button>
-
-            <button
-              onClick={handleReset}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.12] bg-white/[0.04] px-3 py-2 font-mono text-xs text-[#8a8f98] transition hover:bg-white/[0.08] hover:text-white"
-            >
-              <RotateCcw className="size-3.5" />
-              <span>RESET</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.08] pt-3 font-mono text-xs">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-[#8a8f98]">SOURCE:</span>
-              <select
-                value={sourceId}
-                onChange={(e) => setSourceId(parseInt(e.target.value, 10))}
-                className="rounded border border-white/[0.15] bg-black/60 px-2 py-1 font-mono text-xs text-white"
-              >
-                {GRAPH_NODES.map((n) => (
-                  <option key={n.id} value={n.id} className="bg-neutral-900 text-white">
-                    {n.label} ({n.type === "GROUND_STATION" ? "GS" : "SAT"})
-                  </option>
-                ))}
-              </select>
+              {isSearching ? "Searching" : "Find route"}
+            </ToolButton>
+            <ToolButton icon={RotateCcw} onClick={handleReset}>
+              Reset
+            </ToolButton>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-end gap-4">
+            <div>
+              <Label>Source</Label>
+              <div className="mt-1 flex items-center gap-1.5">
+                <Antenna className="size-3 text-[#3ddc97]" />
+                <Select value={sourceId} onChange={(e) => setSourceId(parseInt(e.target.value, 10))}>
+                  {GRAPH_NODES.map((n) => (
+                    <option key={n.id} value={n.id} className="bg-neutral-900 text-white">
+                      {n.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-[#8a8f98]">DESTINATION:</span>
-              <select
-                value={targetId}
-                onChange={(e) => setTargetId(parseInt(e.target.value, 10))}
-                className="rounded border border-white/[0.15] bg-black/60 px-2 py-1 font-mono text-xs text-white"
-              >
-                {GRAPH_NODES.map((n) => (
-                  <option key={n.id} value={n.id} className="bg-neutral-900 text-white">
-                    {n.label} ({n.type === "GROUND_STATION" ? "GS" : "SAT"})
-                  </option>
-                ))}
-              </select>
+            <div>
+              <Label>Destination</Label>
+              <div className="mt-1 flex items-center gap-1.5">
+                <Satellite className="size-3 text-[#3d6bff]" />
+                <Select value={targetId} onChange={(e) => setTargetId(parseInt(e.target.value, 10))}>
+                  {GRAPH_NODES.map((n) => (
+                    <option key={n.id} value={n.id} className="bg-neutral-900 text-white">
+                      {n.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+
+            <div className="flex items-end gap-6">
+              <Metric label="Hops" value={discoveredPath ? hops : "—"} tone="good" />
+              <Metric label="Visited" value={visitedNodes.length} tone="accent" />
             </div>
           </div>
 
-          <span className="text-[11px] text-[#8a8f98]">{statusMsg}</span>
+          <StatusLine tone={statusTone} pulse={isSearching} className="max-w-full lg:max-w-[46%]">
+            {statusMsg}
+          </StatusLine>
         </div>
-      </div>
+      </ExperimentHeader>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="flex flex-col gap-4 lg:col-span-8">
-          <div className="relative rounded-xl border border-white/[0.12] bg-[#02040a] p-5 backdrop-blur-md overflow-hidden">
-            <div className="pointer-events-none absolute inset-0 opacity-20 [background-image:radial-gradient(#ffffff_1px,transparent_1px)] [background-size:24px_24px]" />
-
-            <div className="relative flex items-center justify-between border-b border-white/[0.08] pb-3">
-              <div className="flex items-center gap-2">
-                <Network className="size-4 text-[#3d6bff]" />
-                <span className="font-mono text-xs font-semibold tracking-wider text-white uppercase">
-                  CONSTELLATION NETWORK TOPOLOGY
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <GlassPanel className="p-4 md:p-5 lg:col-span-8">
+          <PanelHeader
+            icon={Network}
+            title="Constellation topology"
+            meta="click node to inspect"
+            right={
+              <div className="flex items-center gap-2 font-mono text-[8px] text-white/30">
+                <span className="flex items-center gap-1">
+                  <span className="size-1.5 rounded-full bg-[#3ddc97]" /> ground
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="size-1.5 rounded-full bg-[#3d6bff]" /> orbit
                 </span>
               </div>
-              <span className="font-mono text-[10px] text-[#8a8f98]">CLICK NODE TO INSPECT</span>
-            </div>
+            }
+          />
 
-            <div className="relative mt-4 overflow-x-auto rounded-lg border border-white/[0.06] bg-black/60 p-4">
-              <svg width="700" height="320" className="mx-auto block select-none">
-                <defs>
-                  <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                    <feGaussianBlur stdDeviation="3" result="glow" />
-                    <feMerge>
-                      <feMergeNode in="glow" />
-                      <feMergeNode in="SourceGraphic" />
-                    </feMerge>
-                  </filter>
-                </defs>
+          <div className="relative mt-4 overflow-x-auto rounded-xl border border-white/[0.06] bg-black/45">
+            <div aria-hidden className="pointer-events-none absolute inset-0 grid-dots opacity-[0.18]" />
 
-                {[
-                  [0, 1],
-                  [0, 2],
-                  [1, 4],
-                  [2, 3],
-                  [3, 4]
-                ].map(([a, b]) => {
-                  const nodeA = activeNodes[a]
-                  const nodeB = activeNodes[b]
-                  const edgeKey = `${a}-${b}`
-                  const isShortestPathEdge =
-                    discoveredPath &&
-                    discoveredPath.some((val, idx) => {
-                      if (idx === discoveredPath.length - 1) return false
-                      const next = discoveredPath[idx + 1]
-                      return (val === a && next === b) || (val === b && next === a)
-                    })
-                  const isActive = activeEdge === edgeKey
+            <svg viewBox="0 0 700 320" className="relative mx-auto block h-[300px] w-full min-w-[560px] select-none">
+              <defs>
+                <filter id="graph-glow" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="4" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <radialGradient id="graph-node-fill" cx="50%" cy="35%" r="70%">
+                  <stop offset="0%" stopColor="rgba(61,107,255,0.22)" />
+                  <stop offset="100%" stopColor="rgba(0,0,0,0.85)" />
+                </radialGradient>
+              </defs>
 
-                  return (
+              {/* orbit guides */}
+              <ellipse cx="350" cy="160" rx="290" ry="118" fill="none" stroke="rgba(255,255,255,0.04)" strokeDasharray="2 8" />
+              <ellipse cx="350" cy="160" rx="190" ry="150" fill="none" stroke="rgba(255,255,255,0.03)" strokeDasharray="2 8" />
+
+              {EDGES.map(([a, b]) => {
+                const nodeA = activeNodes[a]
+                const nodeB = activeNodes[b]
+                const key = edgeKey(a, b)
+                const onPath = pathEdgeSet.has(key)
+                const isActive = activeEdge === key
+
+                return (
+                  <g key={key}>
                     <line
-                      key={edgeKey}
                       x1={nodeA.x}
                       y1={nodeA.y}
                       x2={nodeB.x}
                       y2={nodeB.y}
-                      stroke={isShortestPathEdge ? "#3ddc97" : isActive ? "#3d6bff" : "#ffffff25"}
-                      strokeWidth={isShortestPathEdge ? "3" : isActive ? "2.5" : "1.5"}
-                      strokeDasharray={isShortestPathEdge ? "none" : "4 2"}
-                      filter={isShortestPathEdge ? "url(#glow)" : undefined}
+                      stroke={onPath ? "rgba(61,220,151,0.75)" : isActive ? "rgba(61,107,255,0.8)" : "rgba(255,255,255,0.12)"}
+                      strokeWidth={onPath ? 2 : isActive ? 1.8 : 1}
+                      strokeDasharray={onPath ? undefined : "4 4"}
                     />
-                  )
-                })}
+                    {(onPath || isActive) && (
+                      <line
+                        x1={nodeA.x}
+                        y1={nodeA.y}
+                        x2={nodeB.x}
+                        y2={nodeB.y}
+                        stroke={onPath ? "#3ddc97" : "#3d6bff"}
+                        strokeWidth={onPath ? 2.4 : 1.8}
+                        className="flow-line"
+                        filter="url(#graph-glow)"
+                      />
+                    )}
+                  </g>
+                )
+              })}
 
-                {activeNodes.map((node) => {
-                  const isSelected = selectedNode.id === node.id
-                  const isSource = sourceId === node.id
-                  const isTarget = targetId === node.id
-                  const isVisited = visitedNodes.includes(node.id)
-                  const isPath = discoveredPath?.includes(node.id)
-                  const hasPacket = packetPos === node.id
+              {activeNodes.map((node) => {
+                const isSelected = selectedNode.id === node.id
+                const isSource = sourceId === node.id
+                const isTarget = targetId === node.id
+                const isVisited = visitedNodes.includes(node.id)
+                const onPath = discoveredPath?.includes(node.id)
+                const hasPacket = packetPos === node.id
 
-                  return (
-                    <g
-                      key={node.id}
-                      onClick={() => setSelectedNode(node)}
-                      className="cursor-pointer transition-all duration-200"
-                    >
+                return (
+                  <g
+                    key={node.id}
+                    onClick={() => setSelectedNode(node)}
+                    className="cursor-pointer"
+                  >
+                    {(onPath || isSelected) && (
                       <circle
                         cx={node.x}
                         cy={node.y}
-                        r="28"
-                        className={`transition-all duration-300 ${
-                          isSelected
-                            ? "fill-[#3d6bff]/30 stroke-[#3d6bff] stroke-2"
-                            : isPath
-                            ? "fill-[#3ddc97]/20 stroke-[#3ddc97] stroke-2"
-                            : isVisited
-                            ? "fill-[#ffb547]/20 stroke-[#ffb547] stroke-2"
-                            : "fill-black/90 stroke-white/20 stroke-1"
-                        }`}
-                        filter={isPath ? "url(#glow)" : undefined}
+                        r="33"
+                        fill="none"
+                        stroke={onPath ? "rgba(61,220,151,0.35)" : "rgba(61,107,255,0.35)"}
+                        strokeWidth="1"
+                        className="animate-breathe"
+                        style={{ transformBox: "fill-box", transformOrigin: "center" }}
                       />
+                    )}
 
-                      {hasPacket && (
-                        <circle
-                          cx={node.x}
-                          cy={node.y}
-                          r="34"
-                          className="fill-none stroke-[#3ddc97] stroke-2 animate-ping"
-                        />
-                      )}
+                    <circle
+                      cx={node.x}
+                      cy={node.y}
+                      r="26"
+                      className="transition-all duration-300"
+                      fill={isSelected ? "rgba(61,107,255,0.22)" : "url(#graph-node-fill)"}
+                      stroke={
+                        onPath
+                          ? "#3ddc97"
+                          : isSelected
+                            ? "#3d6bff"
+                            : isVisited
+                              ? "rgba(255,181,71,0.8)"
+                              : "rgba(255,255,255,0.18)"
+                      }
+                      strokeWidth={onPath || isSelected ? 2 : 1}
+                      filter={onPath ? "url(#graph-glow)" : undefined}
+                    />
 
-                      <text
-                        x={node.x}
-                        y={node.y - 2}
-                        textAnchor="middle"
-                        fill="#ffffff"
-                        fontSize="11"
-                        fontFamily="monospace"
-                        fontWeight="bold"
-                      >
-                        {node.label}
+                    {hasPacket && (
+                      <circle
+                        cx={node.x}
+                        cy={node.y}
+                        r="34"
+                        fill="none"
+                        stroke="#3ddc97"
+                        strokeWidth="1.5"
+                        className="animate-pulse-ring"
+                        style={{ transformBox: "fill-box", transformOrigin: "center" }}
+                      />
+                    )}
+
+                    <text
+                      x={node.x}
+                      y={node.y - 3}
+                      textAnchor="middle"
+                      fill="#ffffff"
+                      fontSize="10"
+                      fontFamily="monospace"
+                      fontWeight="bold"
+                    >
+                      {node.label}
+                    </text>
+                    <text
+                      x={node.x}
+                      y={node.y + 9}
+                      textAnchor="middle"
+                      fill={node.type === "GROUND_STATION" ? "#3ddc97" : "#3d6bff"}
+                      fontSize="7"
+                      fontFamily="monospace"
+                    >
+                      {node.type === "GROUND_STATION" ? "EARTH" : "ORBIT"}
+                    </text>
+
+                    {isSource && (
+                      <text x={node.x} y={node.y - 34} textAnchor="middle" fill="#3ddc97" fontSize="8" fontFamily="monospace" fontWeight="bold">
+                        SOURCE
                       </text>
-                      <text
-                        x={node.x}
-                        y={node.y + 11}
-                        textAnchor="middle"
-                        fill={node.type === "GROUND_STATION" ? "#3ddc97" : "#3d6bff"}
-                        fontSize="8"
-                        fontFamily="monospace"
-                      >
-                        {node.type === "GROUND_STATION" ? "EARTH" : "ORBIT"}
+                    )}
+                    {isTarget && (
+                      <text x={node.x} y={node.y - 34} textAnchor="middle" fill="#3d6bff" fontSize="8" fontFamily="monospace" fontWeight="bold">
+                        DEST
                       </text>
+                    )}
+                  </g>
+                )
+              })}
 
-                      {isSource && (
-                        <text x={node.x} y={node.y - 34} textAnchor="middle" fill="#3ddc97" fontSize="9" fontFamily="monospace" fontWeight="bold">
-                          [SOURCE]
-                        </text>
-                      )}
-                      {isTarget && (
-                        <text x={node.x} y={node.y - 34} textAnchor="middle" fill="#3d6bff" fontSize="9" fontFamily="monospace" fontWeight="bold">
-                          [DEST]
-                        </text>
-                      )}
-                    </g>
-                  )
-                })}
-              </svg>
-            </div>
+              {/* travelling packet */}
+              {packetPos !== null && activeNodes[packetPos] && (
+                <g
+                  style={{
+                    transform: `translate(${activeNodes[packetPos].x}px, ${activeNodes[packetPos].y}px)`,
+                    transition: "transform 0.55s cubic-bezier(0.16, 1, 0.3, 1)",
+                  }}
+                >
+                  <circle r="5" fill="#3ddc97" filter="url(#graph-glow)" />
+                  <circle r="10" fill="none" stroke="#3ddc97" strokeWidth="1" opacity="0.4" />
+                </g>
+              )}
+            </svg>
+          </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="rounded-lg border border-[#3ddc97]/30 bg-[#3ddc97]/10 p-3 font-mono text-xs">
-                <div className="flex items-center gap-1.5 text-[#3ddc97] font-bold">
-                  <CheckCircle2 className="size-4" />
-                  <span>BFS SHORTEST ROUTE (FEWEST HOPS)</span>
-                </div>
-                <div className="mt-1.5 text-white font-semibold text-sm">
-                  {discoveredPath ? discoveredPath.map((n) => GRAPH_NODES[n].label).join(" → ") : "Run BFS to compute"}
-                </div>
-                <div className="mt-1 text-[#8a8f98] text-[11px]">
-                  Relay hops: <span className="text-white font-bold">{discoveredPath ? discoveredPath.length - 1 : 0}</span> (Optimal in unweighted network)
+          <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+            <GlassTile className="flex items-center justify-between gap-2 border-[#3ddc97]/25 bg-[#3ddc97]/[0.06] px-3 py-2">
+              <div className="min-w-0">
+                <div className="mono-label text-[7px] text-[#3ddc97]/70">shortest route</div>
+                <div className="mt-1 truncate font-mono text-[10px] text-white">
+                  {discoveredPath
+                    ? discoveredPath.map((n) => GRAPH_NODES[n].label).join(" → ")
+                    : "run BFS to compute"}
                 </div>
               </div>
+              <Badge tone="good">{hops} hops</Badge>
+            </GlassTile>
 
-              <div className="rounded-lg border border-white/[0.08] bg-black/40 p-3 font-mono text-xs">
-                <div className="text-[#8a8f98] font-bold">AVAILABLE ALTERNATIVE PATH</div>
-                <div className="mt-1.5 text-[#8a8f98] font-semibold text-sm">
+            <GlassTile className="flex items-center justify-between gap-2 px-3 py-2">
+              <div className="min-w-0">
+                <div className="mono-label text-[7px] text-white/30">rejected alternative</div>
+                <div className="mt-1 truncate font-mono text-[10px] text-white/45">
                   GS 0 → SAT 2 → SAT 3 → GS 4
                 </div>
-                <div className="mt-1 text-[#8a8f98] text-[11px]">
-                  Relay hops: <span className="text-white font-bold">3</span> (Rejected by BFS: higher hop count)
-                </div>
               </div>
-            </div>
+              <Badge tone="muted">3 hops</Badge>
+            </GlassTile>
           </div>
-        </div>
+        </GlassPanel>
 
         <div className="flex flex-col gap-4 lg:col-span-4">
-          <div className="rounded-xl border border-white/[0.12] bg-white/[0.02] p-5 backdrop-blur-md">
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
-              <div className="flex items-center gap-2">
-                <Radio className="size-4 text-[#3d6bff]" />
-                <span className="font-mono text-xs font-semibold tracking-wider text-white uppercase">
-                  NODE METADATA
-                </span>
-              </div>
-              <span className="font-mono text-[10px] text-[#8a8f98]">ID: {selectedNode.id}</span>
-            </div>
+          <GlassPanel className="p-4">
+            <PanelHeader
+              icon={Radio}
+              title="Node metadata"
+              right={<span className="mono-label text-[8px] text-white/25">id {selectedNode.id}</span>}
+            />
 
-            <div className="mt-3 space-y-2.5 font-mono text-xs">
-              <div className="flex justify-between rounded border border-white/[0.08] bg-black/40 p-2">
-                <span className="text-[#8a8f98]">NODE:</span>
-                <span className="text-white font-bold">{selectedNode.label}</span>
-              </div>
-              <div className="flex justify-between rounded border border-white/[0.08] bg-black/40 p-2">
-                <span className="text-[#8a8f98]">TYPE:</span>
-                <span className={selectedNode.type === "GROUND_STATION" ? "text-[#3ddc97]" : "text-[#3d6bff]"}>
-                  {selectedNode.type === "GROUND_STATION" ? "GROUND STATION" : "LEO SATELLITE"}
+            <div className="mt-3">
+              <div className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    "flex size-8 items-center justify-center rounded-lg border",
+                    selectedNode.type === "GROUND_STATION"
+                      ? "border-[#3ddc97]/30 bg-[#3ddc97]/[0.08] text-[#3ddc97]"
+                      : "border-[#3d6bff]/30 bg-[#3d6bff]/[0.08] text-[#3d6bff]"
+                  )}
+                >
+                  {selectedNode.type === "GROUND_STATION" ? (
+                    <Antenna className="size-4" />
+                  ) : (
+                    <Satellite className="size-4" />
+                  )}
                 </span>
-              </div>
-              <div className="rounded border border-white/[0.08] bg-black/40 p-2">
-                <span className="text-[#8a8f98]">DESIGNATION:</span>
-                <div className="mt-0.5 text-white font-medium text-[11px]">{selectedNode.name}</div>
-              </div>
-              <div className="rounded border border-white/[0.08] bg-black/40 p-2">
-                <span className="text-[#8a8f98]">CONNECTED TO:</span>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {selectedNode.neighbors.map((nb) => (
-                    <span key={nb} className="rounded bg-white/[0.08] px-2 py-0.5 text-[10px] text-white">
-                      {GRAPH_NODES[nb].label}
-                    </span>
-                  ))}
+                <div>
+                  <div className="font-mono text-[12px] font-semibold text-white">
+                    {selectedNode.label}
+                  </div>
+                  <div className="mono-label text-[8px] text-white/30">
+                    {selectedNode.type === "GROUND_STATION" ? "ground station" : "leo satellite"}
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
 
-          <div className="rounded-xl border border-white/[0.12] bg-white/[0.02] p-5 backdrop-blur-md">
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
-              <span className="font-mono text-xs font-semibold text-white uppercase">
-                BFS QUEUE OPERATIONS LOG
-              </span>
+              <GlassTile className="mt-3 p-2.5">
+                <KeyValue k="Designation" v={selectedNode.name} />
+                <KeyValue
+                  k="Links"
+                  v={selectedNode.neighbors.map((n) => GRAPH_NODES[n].label).join(" · ")}
+                  tone="accent"
+                  className="mt-1.5"
+                />
+                <KeyValue
+                  k="Status"
+                  v={visitedNodes.includes(selectedNode.id) ? "visited" : "unvisited"}
+                  tone={visitedNodes.includes(selectedNode.id) ? "good" : "muted"}
+                  className="mt-1.5"
+                />
+              </GlassTile>
             </div>
+          </GlassPanel>
 
-            <div className="mt-3 max-h-[160px] space-y-1.5 overflow-y-auto font-mono text-[11px]">
+          <GlassPanel className="p-4">
+            <PanelHeader
+              icon={Network}
+              title="BFS queue"
+              right={<Badge tone={isSearching ? "accent" : "muted"}>{isSearching ? "live" : "idle"}</Badge>}
+            />
+
+            <div className="mt-3 max-h-[200px] space-y-1 overflow-y-auto pr-1">
               {bfsQueueLog.length > 0 ? (
                 bfsQueueLog.map((log, idx) => (
-                  <div key={idx} className="rounded border border-white/[0.04] bg-black/40 p-1.5 text-[#8a8f98]">
-                    <span className={log.includes("Shortest") ? "text-[#3ddc97] font-semibold" : "text-white/80"}>
+                  <div
+                    key={`${log}-${idx}`}
+                    className="rounded-md border border-white/[0.04] bg-black/25 px-2 py-1 font-mono text-[9px]"
+                  >
+                    <span
+                      className={cn(
+                        log.includes("REACHED")
+                          ? "font-semibold text-[#3ddc97]"
+                          : log.includes("INIT")
+                            ? "text-[#3d6bff]"
+                            : "text-white/50"
+                      )}
+                    >
                       {log}
                     </span>
                   </div>
                 ))
               ) : (
-                <div className="py-6 text-center text-[#8a8f98]">Click [ FIND SHORTEST ROUTE ] to trace BFS queue.</div>
+                <div className="rounded-lg border border-dashed border-white/[0.06] py-6 text-center font-mono text-[9px] text-white/20">
+                  run BFS to trace the queue
+                </div>
               )}
             </div>
-          </div>
+          </GlassPanel>
         </div>
-      </div>
-
-      <div className="rounded-xl border border-white/[0.12] bg-white/[0.02] p-4 backdrop-blur-md">
-        <button
-          onClick={() => setMatrixOpen(!matrixOpen)}
-          className="flex w-full items-center justify-between font-mono text-xs font-semibold text-white"
-        >
-          <div className="flex items-center gap-2">
-            <Network className="size-4 text-[#3d6bff]" />
-            <span>VIEW ADJACENCY MATRIX (5x5 Topo Matrix)</span>
-          </div>
-          {matrixOpen ? <ChevronUp className="size-4 text-[#8a8f98]" /> : <ChevronDown className="size-4 text-[#8a8f98]" />}
-        </button>
-
-        {matrixOpen && (
-          <div className="mt-4 overflow-x-auto rounded-lg border border-white/[0.08] bg-black/60 p-4 font-mono text-xs">
-            <table className="w-full text-center">
-              <thead>
-                <tr className="border-b border-white/[0.12] text-[#8a8f98]">
-                  <th className="p-2 text-left">Vertex</th>
-                  {GRAPH_NODES.map((n) => (
-                    <th key={n.id} className={`p-2 ${selectedNode.id === n.id ? "text-[#3d6bff] font-bold" : ""}`}>
-                      {n.label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {ADJ_MATRIX.map((row, r) => (
-                  <tr
-                    key={r}
-                    className={`border-b border-white/[0.04] ${
-                      selectedNode.id === r ? "bg-[#3d6bff]/10 font-bold text-white" : "text-[#8a8f98]"
-                    }`}
-                  >
-                    <td className="p-2 text-left font-semibold text-white">{GRAPH_NODES[r].label}</td>
-                    {row.map((val, c) => (
-                      <td
-                        key={c}
-                        className={`p-2 ${val === 1 ? "text-[#3ddc97] font-bold" : "text-white/20"} ${
-                          selectedNode.id === c ? "bg-[#3d6bff]/10" : ""
-                        }`}
-                      >
-                        {val}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-xl border border-white/[0.12] bg-white/[0.02] p-4 backdrop-blur-md">
-        <button
-          onClick={() => setCodeOpen(!codeOpen)}
-          className="flex w-full items-center justify-between font-mono text-xs font-semibold text-white"
-        >
-          <div className="flex items-center gap-2">
-            <Cpu className="size-4 text-[#3d6bff]" />
-            <span>VIEW C IMPLEMENTATION (GraphBFS.c)</span>
-          </div>
-          {codeOpen ? <ChevronUp className="size-4 text-[#8a8f98]" /> : <ChevronDown className="size-4 text-[#8a8f98]" />}
-        </button>
-
-        {codeOpen && (
-          <div className="mt-4 rounded-lg border border-white/[0.08] bg-black/80 p-4 font-mono text-xs leading-relaxed text-[#8a8f98]">
-            <pre className="overflow-x-auto text-[11px]">
-              <code>{`#define NUM_NODES 5
-
-int adjMatrix[NUM_NODES][NUM_NODES] = {
-    {0, 1, 1, 0, 0},
-    {1, 0, 0, 0, 1},
-    {1, 0, 0, 1, 0},
-    {0, 0, 1, 0, 1},
-    {0, 1, 0, 1, 0}
-};
-
-void bfsShortestRoute(int start, int target) {
-    int visited[NUM_NODES] = {0};
-    int parent[NUM_NODES];
-    for (int i = 0; i < NUM_NODES; i++) parent[i] = -1;
-
-    int queue[NUM_NODES];
-    int front = 0, rear = 0;
-
-    visited[start] = 1;
-    queue[rear++] = start;
-
-    while (front < rear) {
-        int u = queue[front++];
-        if (u == target) break;
-
-        for (int v = 0; v < NUM_NODES; v++) {
-            if (adjMatrix[u][v] == 1 && !visited[v]) {
-                visited[v] = 1;
-                parent[v] = u;
-                queue[rear++] = v;
-            }
-        }
-    }
-}`}</code>
-            </pre>
-          </div>
-        )}
       </div>
     </div>
   )

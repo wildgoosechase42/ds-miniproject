@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useId, useSyncExternalStore, useCallback } from "react"
-import { SectionLabel } from "@/components/brand/Brand"
+import { useState, useId, useSyncExternalStore, useCallback, useRef, useEffect } from "react"
+import { cn } from "@/lib/utils"
 import {
   Hash,
   Search,
@@ -9,17 +9,29 @@ import {
   Trash2,
   Play,
   RotateCcw,
-  Cpu,
-  ChevronDown,
-  ChevronUp,
-  Globe
+  Globe,
+  Gauge,
+  Activity,
 } from "lucide-react"
 
 import { fetchSatnogsTelemetry } from "@/lib/satnogsClient"
+import {
+  Badge,
+  ExperimentHeader,
+  Field,
+  GlassPanel,
+  GlassTile,
+  Label,
+  Metric,
+  PanelHeader,
+  ProgressBar,
+  StatusLine,
+  ToolButton,
+  TONE,
+  type Tone,
+} from "@/components/sections/flight/ui"
 
 const emptySubscribe = () => () => {}
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
-
 const HASH_SIZE = 10
 
 type SlotStatus = "EMPTY" | "OCCUPIED" | "DELETED"
@@ -41,7 +53,7 @@ const INITIAL_TABLE: HashSlot[] = [
   { slot: 6, packet_id: null, payload_data: null, status: "EMPTY" },
   { slot: 7, packet_id: null, payload_data: null, status: "EMPTY" },
   { slot: 8, packet_id: null, payload_data: null, status: "EMPTY" },
-  { slot: 9, packet_id: null, payload_data: null, status: "EMPTY" }
+  { slot: 9, packet_id: null, payload_data: null, status: "EMPTY" },
 ]
 
 export function Exp8HashIndexer() {
@@ -57,19 +69,58 @@ export function Exp8HashIndexer() {
   const [probedSlots, setProbedSlots] = useState<number[]>([])
   const [highlightSlot, setHighlightSlot] = useState<number | null>(null)
   const [opLog, setOpLog] = useState<string[]>([
-    "INITIAL LOAD: Slots 1 (P101), 2 (P201), 4 (P104) occupied",
-    "HASH FORMULA: hash(key) = key % 10"
+    "LOAD · slots 1, 2, 4 occupied",
+    "hash(key) = key % 10",
   ])
-  const [statusMsg, setStatusMsg] = useState<string>("Hash table ready: 3/10 slots occupied (30% load factor)")
-  const [codeOpen, setCodeOpen] = useState<boolean>(false)
+  const [statusMsg, setStatusMsg] = useState<string>("Hash table ready · 3/10 slots occupied")
   const [isDemoRunning, setIsDemoRunning] = useState<boolean>(false)
   const [satnogsLoading, setSatnogsLoading] = useState<boolean>(false)
 
+  const probeTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const demoTimers = useRef<Array<ReturnType<typeof setTimeout>>>([])
+
   const occupiedCount = table.filter((s) => s.status === "OCCUPIED").length
-  const loadFactor = ((occupiedCount / HASH_SIZE) * 100).toFixed(0)
+  const loadFactor = (occupiedCount / HASH_SIZE) * 100
 
   const addLog = (msg: string) => {
-    setOpLog((prev) => [msg, ...prev].slice(0, 10))
+    setOpLog((prev) => [msg, ...prev].slice(0, 9))
+  }
+
+  const clearTimers = useCallback(() => {
+    if (probeTimer.current) clearInterval(probeTimer.current)
+    probeTimer.current = null
+    demoTimers.current.forEach(clearTimeout)
+    demoTimers.current = []
+  }, [])
+
+  useEffect(() => clearTimers, [clearTimers])
+
+  const animateProbes = (
+    probes: number[],
+    finalSlot: number | null,
+    onDone?: () => void
+  ) => {
+    if (probeTimer.current) clearInterval(probeTimer.current)
+    setProbedSlots([])
+    setHighlightSlot(null)
+
+    if (probes.length === 0) {
+      setHighlightSlot(finalSlot)
+      onDone?.()
+      return
+    }
+
+    let i = 0
+    probeTimer.current = setInterval(() => {
+      i++
+      setProbedSlots(probes.slice(0, i))
+      if (i >= probes.length) {
+        if (probeTimer.current) clearInterval(probeTimer.current)
+        probeTimer.current = null
+        setHighlightSlot(finalSlot)
+        onDone?.()
+      }
+    }, 130)
   }
 
   const handleInsert = useCallback(() => {
@@ -77,7 +128,7 @@ export function Exp8HashIndexer() {
     if (isNaN(id) || !newPayload.trim()) return
 
     if (occupiedCount >= HASH_SIZE) {
-      setStatusMsg("TABLE OVERFLOW: Hash table completely full (100% load)")
+      setStatusMsg("Table overflow · all slots occupied")
       return
     }
 
@@ -96,31 +147,36 @@ export function Exp8HashIndexer() {
     }
 
     if (insertedSlot === -1) {
-      setStatusMsg("INSERT FAILED: No available slots found during probing")
+      setStatusMsg("Insert failed · no free slot in probe chain")
       return
     }
 
-    setProbedSlots(probes)
-    setHighlightSlot(insertedSlot)
+    const payload = newPayload.trim()
+    const collided = insertedSlot !== initialHash
 
-    setTable((prev) => {
-      const copy = [...prev]
-      copy[insertedSlot] = {
-        slot: insertedSlot,
-        packet_id: id,
-        payload_data: newPayload.trim(),
-        status: "OCCUPIED"
-      }
-      return copy
+    setStatusMsg(
+      collided
+        ? `Collision at ${initialHash} · probing to slot ${insertedSlot}`
+        : `Direct write · slot ${insertedSlot}`
+    )
+
+    animateProbes(probes, insertedSlot, () => {
+      setTable((prev) => {
+        const copy = [...prev]
+        copy[insertedSlot] = {
+          slot: insertedSlot,
+          packet_id: id,
+          payload_data: payload,
+          status: "OCCUPIED",
+        }
+        return copy
+      })
+      addLog(
+        collided
+          ? `INSERT ${id} · collision ${initialHash} → probe ${insertedSlot}`
+          : `INSERT ${id} → slot ${insertedSlot}`
+      )
     })
-
-    if (insertedSlot === initialHash) {
-      addLog(`INSERT ${id} → SLOT ${insertedSlot} (Direct hash ${id} % 10 = ${initialHash})`)
-      setStatusMsg(`INSERT: Packet #${id} placed at Slot [${insertedSlot}] directly`)
-    } else {
-      addLog(`INSERT ${id} → COLLISION at ${initialHash} → PROBED TO SLOT ${insertedSlot}`)
-      setStatusMsg(`COLLISION DETECTED: Hash ${initialHash} was occupied. Linear probed to Slot [${insertedSlot}].`)
-    }
   }, [newPktId, newPayload, occupiedCount, table])
 
   const handleSearch = useCallback(() => {
@@ -138,33 +194,35 @@ export function Exp8HashIndexer() {
         foundSlot = curr
         break
       }
-      if (table[curr].status === "EMPTY") {
-        break
-      }
+      if (table[curr].status === "EMPTY") break
       curr = (curr + 1) % HASH_SIZE
     }
 
-    setProbedSlots(probes)
-    setHighlightSlot(foundSlot)
+    setStatusMsg(
+      foundSlot !== null
+        ? `Packet ${id} found at slot ${foundSlot} · ${probes.length} probes`
+        : `Packet ${id} not present · ${probes.length} probes`
+    )
 
-    if (foundSlot !== null) {
-      addLog(`SEARCH ${id} → FOUND AT SLOT ${foundSlot} (${probes.length} probes)`)
-      setStatusMsg(`SEARCH SUCCESS: Packet #${id} located at Slot [${foundSlot}]. Data: ${table[foundSlot].payload_data}`)
-    } else {
-      addLog(`SEARCH ${id} → NOT FOUND (Checked slots: ${probes.join(", ")})`)
-      setStatusMsg(`SEARCH FAILED: Packet #${id} not present in hash table.`)
-    }
+    animateProbes(probes, foundSlot, () => {
+      addLog(
+        foundSlot !== null
+          ? `SEARCH ${id} · found at slot ${foundSlot}`
+          : `SEARCH ${id} · not found (${probes.length} probes)`
+      )
+    })
   }, [searchKey, table])
 
   const handleDelete = useCallback(() => {
     const id = parseInt(searchKey, 10)
     if (isNaN(id)) return
 
-    const initialHash = id % HASH_SIZE
-    let curr = initialHash
+    let curr = id % HASH_SIZE
+    const probes: number[] = []
     let deletedSlot: number | null = null
 
     for (let i = 0; i < HASH_SIZE; i++) {
+      probes.push(curr)
       if (table[curr].status === "OCCUPIED" && table[curr].packet_id === id) {
         deletedSlot = curr
         break
@@ -174,90 +232,99 @@ export function Exp8HashIndexer() {
     }
 
     if (deletedSlot !== null) {
-      setTable((prev) => {
-        const copy = [...prev]
-        copy[deletedSlot!] = {
-          slot: deletedSlot!,
-          packet_id: null,
-          payload_data: null,
-          status: "DELETED"
-        }
-        return copy
+      setStatusMsg(`Slot ${deletedSlot} marked DELETED · chain preserved`)
+      animateProbes(probes, deletedSlot, () => {
+        setTable((prev) => {
+          const copy = [...prev]
+          copy[deletedSlot!] = {
+            slot: deletedSlot!,
+            packet_id: null,
+            payload_data: null,
+            status: "DELETED",
+          }
+          return copy
+        })
+        addLog(`DELETE ${id} · slot ${deletedSlot} marked DELETED`)
       })
-      setHighlightSlot(deletedSlot)
-      addLog(`DELETE ${id} → SLOT ${deletedSlot} MARKED AS DELETED (DUMMY MARKER)`)
-      setStatusMsg(`DELETE: Slot [${deletedSlot}] marked DELETED. Preserves linear probing chain for future lookups.`)
     } else {
-      setStatusMsg(`DELETE FAILED: Packet #${id} not found in table`)
+      setStatusMsg(`Delete failed · packet ${id} not found`)
     }
   }, [searchKey, table])
 
   const runCollisionDemo = useCallback(() => {
+    clearTimers()
     setIsDemoRunning(true)
-    setStatusMsg("DEMO: Running automated collision & probe chain verification...")
+    setStatusMsg("Demo · building collision chain…")
 
     const demoPackets = [
       { id: 101, payload: "COMM_PING" },
       { id: 201, payload: "ATTITUDE_QUAT" },
       { id: 111, payload: "IMAGE_CHUNK_3" },
       { id: 104, payload: "SOLAR_TRACK" },
-      { id: 114, payload: "BATTERY_BAL" }
+      { id: 114, payload: "BATTERY_BAL" },
     ]
 
     const freshTable: HashSlot[] = Array.from({ length: HASH_SIZE }, (_, i) => ({
       slot: i,
       packet_id: null,
       payload_data: null,
-      status: "EMPTY"
+      status: "EMPTY" as SlotStatus,
     }))
 
     demoPackets.forEach((p) => {
-      const h = p.id % HASH_SIZE
-      let s = h
-      while (freshTable[s].status === "OCCUPIED") {
-        s = (s + 1) % HASH_SIZE
-      }
+      let s = p.id % HASH_SIZE
+      while (freshTable[s].status === "OCCUPIED") s = (s + 1) % HASH_SIZE
       freshTable[s] = {
         slot: s,
         packet_id: p.id,
         payload_data: p.payload,
-        status: "OCCUPIED"
+        status: "OCCUPIED",
       }
     })
 
     setTable(freshTable)
-    setSearchKey("111")
-    addLog("DEMO: Inserted 101, 201, 111 (all hash to 1) and 104, 114 (hash to 4)")
+    setProbedSlots([])
+    setHighlightSlot(null)
+    addLog("DEMO · 101, 201, 111 hash to slot 1 · 104, 114 to slot 4")
 
-    setTimeout(() => {
-      freshTable[2] = { slot: 2, packet_id: null, payload_data: null, status: "DELETED" }
-      setTable([...freshTable])
-      addLog("DEMO: Deleted Packet 201 at Slot 2 → Marked DELETED (DUMMY)")
-
+    demoTimers.current.push(
       setTimeout(() => {
-        setProbedSlots([1, 2, 3])
-        setHighlightSlot(3)
-        addLog("DEMO: Searching 111 → Passed through Slot 2 (DELETED) → Found at Slot 3!")
-        setStatusMsg("DEMO COMPLETE: Probing chained successfully past DELETED dummy marker to find 111")
-        setIsDemoRunning(false)
-      }, 1000)
-    }, 1200)
-  }, [])
+        const updated = [...freshTable]
+        updated[2] = { slot: 2, packet_id: null, payload_data: null, status: "DELETED" }
+        setTable(updated)
+        setSearchKey("111")
+        addLog("DEMO · deleted 201 at slot 2 · dummy marker")
+        setStatusMsg("Demo · probing past DELETED marker")
+
+        demoTimers.current.push(
+          setTimeout(() => {
+            animateProbes([1, 2, 3], 3, () => {
+              addLog("DEMO · search 111 passed slot 2 → found slot 3")
+              setStatusMsg("Demo complete · probing chained past DELETED")
+              setIsDemoRunning(false)
+            })
+          }, 700)
+        )
+      }, 1100)
+    )
+  }, [clearTimers])
 
   const handleReset = useCallback(() => {
+    clearTimers()
     setTable(INITIAL_TABLE)
     setProbedSlots([])
     setHighlightSlot(null)
     setNewPktId("111")
     setSearchKey("111")
     setIsDemoRunning(false)
-    setOpLog(["RESET: Restored default hash table state"])
-    setStatusMsg("Hash table restored to initial state")
-  }, [])
+    setOpLog(["RESET · default hash table restored"])
+    setStatusMsg("Hash table restored · 3/10 slots occupied")
+  }, [clearTimers])
 
   const indexSatnogsPackets = async () => {
+    clearTimers()
     setSatnogsLoading(true)
-    setStatusMsg("Querying SatNOGS database to index live telemetry packets...")
+    setStatusMsg("Indexing live SatNOGS packets…")
     try {
       const data = await fetchSatnogsTelemetry(5)
       if (data.packets && data.packets.length > 0) {
@@ -265,382 +332,334 @@ export function Exp8HashIndexer() {
           slot: i,
           packet_id: null,
           payload_data: null,
-          status: "EMPTY"
+          status: "EMPTY" as SlotStatus,
         }))
 
         data.packets.slice(0, 5).forEach((p) => {
           const id = p.packet_id % 10000
           const payload = `${p.ground_station.slice(0, 10)}_${p.transmitter_mode}`
-          const h = id % HASH_SIZE
-          let s = h
-          while (freshTable[s].status === "OCCUPIED") {
-            s = (s + 1) % HASH_SIZE
-          }
+          let s = id % HASH_SIZE
+          while (freshTable[s].status === "OCCUPIED") s = (s + 1) % HASH_SIZE
           freshTable[s] = {
             slot: s,
             packet_id: id,
             payload_data: payload,
-            status: "OCCUPIED"
+            status: "OCCUPIED",
           }
         })
 
         setTable(freshTable)
+        setProbedSlots([])
+        setHighlightSlot(null)
         setSearchKey(String(data.packets[0].packet_id % 10000))
-        addLog(`SATNOGS: Ingested & hashed ${Math.min(5, data.packets.length)} live satellite packets`)
-        setStatusMsg(`Indexed SatNOGS packets with linear probing collision resolution`)
+        addLog(`SATNOGS · ${Math.min(5, data.packets.length)} packets hashed`)
+        setStatusMsg("SatNOGS packets indexed · linear probing active")
       }
     } catch {
-      setStatusMsg("Failed to connect to SatNOGS DB endpoint")
+      setStatusMsg("SatNOGS index unavailable · retry")
     } finally {
       setSatnogsLoading(false)
     }
   }
 
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="rounded-xl border border-white/[0.12] bg-white/[0.02] p-5 backdrop-blur-md md:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2.5">
-              <SectionLabel accent>EXPERIMENT 08</SectionLabel>
-              <span className="rounded border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider text-[#8a8f98]">
-                DATA STRUCTURE / HASH TABLE / LINEAR PROBING
-              </span>
-              <span className="inline-flex items-center gap-1 font-mono text-[11px] text-[#3ddc97]">
-                <span className={`size-1.5 rounded-full ${occupiedCount > 7 ? "bg-[#ff5c7a]" : "bg-[#3ddc97]"}`} />
-                {occupiedCount > 7 ? "⚠ HIGH LOAD FACTOR" : "OPTIMAL LOAD"}
-              </span>
-            </div>
-            <h3 className="mt-2 text-xl font-semibold tracking-tight text-white md:text-2xl">
-              INSTANT TELEMETRY LOOKUP
-            </h3>
-            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-[#8a8f98]">
-              Explore how hashing provides fast packet indexing and retrieval for onboard telemetry processing.
-            </p>
-          </div>
+  const statusTone: Tone = /overflow|failed|not present|unavailable/i.test(statusMsg)
+    ? "fair"
+    : highlightSlot !== null
+      ? "good"
+      : "muted"
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
+  return (
+    <div className="flex flex-col gap-4">
+      <ExperimentHeader
+        code="08"
+        tag="hash table · linear probing"
+        title="Instant Telemetry Lookup"
+        state={occupiedCount > 7 ? "HIGH LOAD" : "OPTIMAL LOAD"}
+        stateTone={occupiedCount > 7 ? "poor" : "good"}
+        actions={
+          <>
+            <ToolButton
+              icon={Globe}
+              variant="live"
               onClick={indexSatnogsPackets}
               disabled={satnogsLoading}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#3ddc97]/40 bg-[#3ddc97]/10 px-3.5 py-2 font-mono text-xs font-semibold text-[#3ddc97] transition hover:bg-[#3ddc97]/20 active:scale-95 disabled:opacity-40"
             >
-              <Globe className={`size-3.5 ${satnogsLoading ? "animate-spin" : ""}`} />
-              <span>{satnogsLoading ? "INDEXING..." : "INDEX SATNOGS DB"}</span>
-            </button>
-
-            <button
+              {satnogsLoading ? "Indexing" : "SatNOGS"}
+            </ToolButton>
+            <ToolButton
+              icon={Play}
+              variant="primary"
               onClick={runCollisionDemo}
               disabled={mounted ? isDemoRunning : false}
               suppressHydrationWarning
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#3d6bff] px-3.5 py-2 font-mono text-xs font-semibold text-white shadow-md shadow-[#3d6bff]/20 transition hover:bg-[#3d6bff]/90 active:scale-95 disabled:opacity-40"
             >
-              <Play className="size-3.5 fill-current" />
-              <span>{isDemoRunning ? "RUNNING DEMO..." : "[ RUN COLLISION DEMO ]"}</span>
-            </button>
-
-            <button
-              onClick={handleReset}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.12] bg-white/[0.04] px-3 py-2 font-mono text-xs text-[#8a8f98] transition hover:border-white/30 hover:bg-white/[0.08] hover:text-white active:scale-95"
-            >
-              <RotateCcw className="size-3.5" />
-              <span>RESET</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.08] pt-3 font-mono text-xs">
-          <div className="flex items-center gap-3">
-            <span className="text-[#8a8f98]">HASH FUNCTION:</span>
-            <span className="text-[#3d6bff] font-bold">hash(key) = key % 10</span>
-            <span className="text-white/30">|</span>
-            <span className="text-[#8a8f98]">PROBING:</span>
-            <span className="text-[#3ddc97] font-semibold">(index + 1) % 10</span>
+              {isDemoRunning ? "Running" : "Collision demo"}
+            </ToolButton>
+            <ToolButton icon={RotateCcw} onClick={handleReset}>
+              Reset
+            </ToolButton>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:flex sm:items-center sm:gap-7">
+            <Metric label="Capacity" value={HASH_SIZE} unit="slots" />
+            <Metric label="Occupied" value={`${occupiedCount}/${HASH_SIZE}`} tone="good" />
+            <Metric label="Load α" value={loadFactor.toFixed(0)} unit="%" tone="accent" />
+            <Metric label="Lookup" value="O(1)" tone="good" />
           </div>
 
-          <span className="text-[11px] text-[#8a8f98]">{statusMsg}</span>
+          <div className="flex items-center gap-2 font-mono text-[9px]">
+            <span className="text-white/25">hash</span>
+            <span className="text-[#3d6bff]">key % 10</span>
+            <span className="text-white/15">·</span>
+            <span className="text-[#3ddc97]">(i + 1) % 10</span>
+          </div>
         </div>
-      </div>
+      </ExperimentHeader>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 font-mono text-xs">
-        <div className="rounded-xl border border-white/[0.08] bg-black/40 p-4">
-          <div className="text-[10px] text-[#8a8f98]">TABLE CAPACITY</div>
-          <div className="mt-1 text-xl font-bold text-white">{HASH_SIZE} SLOTS</div>
-          <div className="text-[10px] text-[#8a8f98]">Index [0..9]</div>
-        </div>
-
-        <div className="rounded-xl border border-white/[0.08] bg-black/40 p-4">
-          <div className="text-[10px] text-[#8a8f98]">OCCUPIED SLOTS</div>
-          <div className="mt-1 text-xl font-bold text-[#3ddc97]">{occupiedCount} / {HASH_SIZE}</div>
-          <div className="text-[10px] text-[#8a8f98]">{HASH_SIZE - occupiedCount} Empty</div>
-        </div>
-
-        <div className="rounded-xl border border-white/[0.08] bg-black/40 p-4">
-          <div className="text-[10px] text-[#8a8f98]">LOAD FACTOR (α)</div>
-          <div className="mt-1 text-xl font-bold text-[#3d6bff]">{loadFactor}%</div>
-          <div className="text-[10px] text-[#8a8f98]">{occupiedCount > 7 ? "High Collision Risk" : "Normal"}</div>
-        </div>
-
-        <div className="rounded-xl border border-white/[0.08] bg-black/40 p-4">
-          <div className="text-[10px] text-[#8a8f98]">AVERAGE LOOKUP</div>
-          <div className="mt-1 text-xl font-bold text-[#3ddc97]">O(1)</div>
-          <div className="text-[10px] text-[#8a8f98]">Direct array access</div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="flex flex-col gap-4 lg:col-span-8">
-          <div className="rounded-xl border border-white/[0.12] bg-white/[0.02] p-5 backdrop-blur-md">
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
-              <div className="flex items-center gap-2">
-                <Hash className="size-4 text-[#3d6bff]" />
-                <span className="font-mono text-xs font-semibold tracking-wider text-white uppercase">
-                  HASH TABLE SLOTS (SIZE = 10)
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <GlassPanel className="p-4 md:p-5 lg:col-span-8">
+          <PanelHeader
+            icon={Hash}
+            title="Hash table"
+            meta="size = 10"
+            right={
+              <div className="flex items-center gap-2.5 font-mono text-[8px] text-white/30">
+                <span className="flex items-center gap-1">
+                  <span className="size-1.5 rounded-full bg-[#3ddc97]" /> occupied
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="size-1.5 rounded-full bg-[#ffb547]" /> deleted
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="size-1.5 rounded-full bg-white/20" /> empty
                 </span>
               </div>
-              <div className="flex items-center gap-3 font-mono text-[10px] text-[#8a8f98]">
-                <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-[#3ddc97]" /> OCCUPIED</span>
-                <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-[#ffb547]" /> DELETED (DUMMY)</span>
-                <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-white/20" /> EMPTY</span>
-              </div>
-            </div>
+            }
+          />
 
-            <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-5 font-mono text-xs">
-              {table.map((slot) => {
-                const isProbed = probedSlots.includes(slot.slot)
-                const isHighlighted = highlightSlot === slot.slot
+          <div className="mt-4 grid grid-cols-2 gap-1.5 sm:grid-cols-5">
+            {table.map((slot) => {
+              const isProbed = probedSlots.includes(slot.slot)
+              const isHighlighted = highlightSlot === slot.slot
+              const probeIndex = probedSlots.indexOf(slot.slot)
 
-                return (
-                  <div
-                    key={slot.slot}
-                    className={`relative rounded-lg border p-3 transition-all duration-300 ${
-                      isHighlighted
-                        ? "border-[#3ddc97] bg-[#3ddc97]/20 shadow-lg shadow-[#3ddc97]/20"
-                        : isProbed
-                        ? "border-[#3d6bff] bg-[#3d6bff]/20"
+              return (
+                <div
+                  key={slot.slot}
+                  className={cn(
+                    "relative overflow-hidden rounded-lg border p-2.5 font-mono transition-all duration-300",
+                    isHighlighted
+                      ? "border-[#3ddc97]/80 bg-[#3ddc97]/[0.12] shadow-[0_0_26px_-8px_rgba(61,220,151,0.9)]"
+                      : isProbed
+                        ? "border-[#3d6bff]/70 bg-[#3d6bff]/[0.12]"
                         : slot.status === "OCCUPIED"
-                        ? "border-[#3d6bff]/50 bg-black/60"
-                        : slot.status === "DELETED"
-                        ? "border-[#ffb547]/40 bg-[#ffb547]/10"
-                        : "border-white/[0.06] bg-black/30"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-[#8a8f98]">SLOT {slot.slot}</span>
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-[8px] font-bold ${
-                          slot.status === "OCCUPIED"
-                            ? "bg-[#3ddc97]/20 text-[#3ddc97]"
-                            : slot.status === "DELETED"
-                            ? "bg-[#ffb547]/20 text-[#ffb547]"
-                            : "bg-white/[0.06] text-white/40"
-                        }`}
-                      >
-                        {slot.status}
-                      </span>
-                    </div>
-
-                    <div className="mt-2 min-h-[38px]">
-                      {slot.status === "OCCUPIED" ? (
-                        <>
-                          <div className="font-bold text-white text-[11px]">PKT #{slot.packet_id}</div>
-                          <div className="text-[9px] text-[#8a8f98] truncate">{slot.payload_data}</div>
-                        </>
-                      ) : slot.status === "DELETED" ? (
-                        <div className="text-[9px] text-[#ffb547] font-mono leading-tight">
-                          DUMMY MARKER (Chain Preserved)
-                        </div>
-                      ) : (
-                        <div className="text-[10px] text-white/20 font-mono">NULL / EMPTY</div>
+                          ? "border-[#3d6bff]/35 bg-white/[0.03]"
+                          : slot.status === "DELETED"
+                            ? "border-[#ffb547]/35 bg-[#ffb547]/[0.06]"
+                            : "border-white/[0.05] bg-black/30"
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[8px] tabular-nums text-white/30">
+                      {String(slot.slot).padStart(2, "0")}
+                    </span>
+                    <span
+                      className={cn(
+                        "rounded px-1 py-px text-[6px] font-bold tracking-[0.1em]",
+                        slot.status === "OCCUPIED"
+                          ? "bg-[#3ddc97]/15 text-[#3ddc97]"
+                          : slot.status === "DELETED"
+                            ? "bg-[#ffb547]/15 text-[#ffb547]"
+                            : "bg-white/[0.05] text-white/25"
                       )}
-                    </div>
+                    >
+                      {slot.status === "OCCUPIED" ? "OCC" : slot.status === "DELETED" ? "DEL" : "FREE"}
+                    </span>
+                  </div>
 
-                    {isProbed && (
-                      <div className="absolute -top-2 left-2 rounded bg-[#3d6bff] px-1 text-[8px] font-bold text-white">
-                        PROBED
+                  <div className="mt-2 min-h-[34px]">
+                    {slot.status === "OCCUPIED" ? (
+                      <>
+                        <div className="truncate text-[10px] font-bold text-white">
+                          P#{slot.packet_id}
+                        </div>
+                        <div className="mt-0.5 truncate text-[7px] text-white/35">
+                          {slot.payload_data}
+                        </div>
+                      </>
+                    ) : slot.status === "DELETED" ? (
+                      <div className="text-[7px] leading-tight text-[#ffb547]/80">
+                        dummy marker
+                        <br />
+                        chain preserved
                       </div>
+                    ) : (
+                      <div className="text-[7px] text-white/15">NULL</div>
                     )}
                   </div>
-                )
-              })}
-            </div>
 
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="rounded-lg border border-white/[0.08] bg-black/40 p-3.5">
-                <span className="font-mono text-xs font-semibold text-white">INSERT PACKET</span>
-                <div className="mt-2.5 flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <label htmlFor={inputPktId} className="w-16 font-mono text-[10px] text-[#8a8f98]">ID (Key):</label>
-                    <input
-                      id={inputPktId}
-                      type="number"
-                      value={newPktId}
-                      onChange={(e) => setNewPktId(e.target.value)}
-                      className="w-full rounded border border-white/[0.15] bg-black/60 px-2.5 py-1 font-mono text-xs text-white"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label htmlFor={inputPayloadId} className="w-16 font-mono text-[10px] text-[#8a8f98]">Payload:</label>
-                    <input
-                      id={inputPayloadId}
-                      type="text"
-                      value={newPayload}
-                      onChange={(e) => setNewPayload(e.target.value)}
-                      className="w-full rounded border border-white/[0.15] bg-black/60 px-2.5 py-1 font-mono text-xs text-white"
-                    />
-                  </div>
-                  <button
-                    onClick={handleInsert}
-                    className="mt-1 inline-flex items-center justify-center gap-1.5 rounded bg-[#3d6bff] py-1.5 font-mono text-xs font-semibold text-white transition hover:bg-[#3d6bff]/90"
-                  >
-                    <Plus className="size-3.5" />
-                    <span>[ INSERT PACKET ]</span>
-                  </button>
+                  {isProbed && (
+                    <span className="absolute -top-px left-2 rounded-b bg-[#3d6bff] px-1 text-[6px] font-bold text-white">
+                      {probeIndex + 1}
+                    </span>
+                  )}
                 </div>
-              </div>
-
-              <div className="rounded-lg border border-white/[0.08] bg-black/40 p-3.5">
-                <span className="font-mono text-xs font-semibold text-white">SEARCH / DELETE PACKET</span>
-                <div className="mt-2.5 flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <label htmlFor={searchInputId} className="w-16 font-mono text-[10px] text-[#8a8f98]">Packet ID:</label>
-                    <input
-                      id={searchInputId}
-                      type="number"
-                      value={searchKey}
-                      onChange={(e) => setSearchKey(e.target.value)}
-                      placeholder="e.g. 111"
-                      className="w-full rounded border border-white/[0.15] bg-black/60 px-2.5 py-1 font-mono text-xs text-white"
-                    />
-                  </div>
-                  <div className="mt-1 flex items-center gap-2">
-                    <button
-                      onClick={handleSearch}
-                      className="flex-1 inline-flex items-center justify-center gap-1.5 rounded bg-[#3d6bff] py-1.5 font-mono text-xs font-semibold text-white transition hover:bg-[#3d6bff]/90 active:scale-95"
-                    >
-                      <Search className="size-3.5" />
-                      <span>[ SEARCH ]</span>
-                    </button>
-                    <button
-                      onClick={handleDelete}
-                      className="inline-flex items-center gap-1.5 rounded border border-[#ff5c7a]/40 bg-[#ff5c7a]/15 px-3 py-1.5 font-mono text-xs font-semibold text-[#ff5c7a] transition hover:bg-[#ff5c7a]/25"
-                    >
-                      <Trash2 className="size-3.5" />
-                      <span>DELETE</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+              )
+            })}
           </div>
-        </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
+            <GlassTile className="p-2.5">
+              <Label>Insert packet</Label>
+              <div className="mt-1.5 space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <label htmlFor={inputPktId} className="w-10 shrink-0 font-mono text-[8px] text-white/30">
+                    key
+                  </label>
+                  <Field
+                    id={inputPktId}
+                    type="number"
+                    value={newPktId}
+                    onChange={(e) => setNewPktId(e.target.value)}
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <label htmlFor={inputPayloadId} className="w-10 shrink-0 font-mono text-[8px] text-white/30">
+                    data
+                  </label>
+                  <Field
+                    id={inputPayloadId}
+                    type="text"
+                    value={newPayload}
+                    onChange={(e) => setNewPayload(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleInsert()}
+                  />
+                </div>
+                <ToolButton icon={Plus} variant="primary" onClick={handleInsert} className="w-full">
+                  Insert
+                </ToolButton>
+              </div>
+            </GlassTile>
+
+            <GlassTile className="p-2.5">
+              <Label>Search / delete</Label>
+              <div className="mt-1.5 space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <label htmlFor={searchInputId} className="w-10 shrink-0 font-mono text-[8px] text-white/30">
+                    key
+                  </label>
+                  <Field
+                    id={searchInputId}
+                    type="number"
+                    value={searchKey}
+                    onChange={(e) => setSearchKey(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                  />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <ToolButton
+                    icon={Search}
+                    variant="primary"
+                    onClick={handleSearch}
+                    className="flex-1"
+                  >
+                    Search
+                  </ToolButton>
+                  <ToolButton icon={Trash2} variant="danger" onClick={handleDelete}>
+                    Delete
+                  </ToolButton>
+                </div>
+                <div className="flex items-center justify-between font-mono text-[8px] text-white/25">
+                  <span>probes</span>
+                  <span className="text-[#3d6bff]">{probedSlots.length}</span>
+                </div>
+              </div>
+            </GlassTile>
+          </div>
+
+          <StatusLine tone={statusTone} pulse={isDemoRunning} className="mt-2.5">
+            {statusMsg}
+          </StatusLine>
+        </GlassPanel>
 
         <div className="flex flex-col gap-4 lg:col-span-4">
-          <div className="rounded-xl border border-white/[0.12] bg-white/[0.02] p-5 backdrop-blur-md">
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
-              <span className="font-mono text-xs font-semibold tracking-wider text-white uppercase">
-                WHY USE DELETED / DUMMY MARKERS?
-              </span>
-            </div>
+          <GlassPanel className="p-4">
+            <PanelHeader icon={Gauge} title="Load factor" meta="α = n / m" />
 
-            <div className="mt-3 space-y-2.5 font-mono text-[11px] text-[#8a8f98]">
-              <p>
-                In open addressing (linear probing), searching stops when an <span className="text-white font-bold">EMPTY</span> slot is encountered.
-              </p>
-              <div className="rounded border border-white/[0.08] bg-black/40 p-2.5 text-white/90">
-                If a deleted slot became completely EMPTY, search for colliding keys inserted further down the probe chain would terminate prematurely and report &quot;NOT FOUND&quot;.
+            <div className="mt-3">
+              <div className="flex items-end justify-between">
+                <div className="font-mono text-[26px] font-semibold leading-none tabular-nums text-white">
+                  {loadFactor.toFixed(0)}
+                  <span className="text-[12px] font-normal text-white/30">%</span>
+                </div>
+                <Badge tone={occupiedCount > 7 ? "poor" : occupiedCount > 4 ? "fair" : "good"}>
+                  {occupiedCount > 7 ? "high risk" : occupiedCount > 4 ? "moderate" : "optimal"}
+                </Badge>
               </div>
-              <p className="text-[#ffb547]">
-                Marking it <span className="font-bold">DELETED</span> allows search to continue through the chain while allowing new insertions to reuse the slot.
-              </p>
-            </div>
-          </div>
 
-          <div className="rounded-xl border border-white/[0.12] bg-white/[0.02] p-5 backdrop-blur-md">
-            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
-              <span className="font-mono text-xs font-semibold text-white uppercase">
-                OPERATION LOG
-              </span>
-            </div>
+              <ProgressBar
+                value={loadFactor}
+                tone={occupiedCount > 7 ? "poor" : occupiedCount > 4 ? "fair" : "good"}
+                className="mt-3 h-1.5"
+              />
 
-            <div className="mt-3 max-h-[160px] space-y-1.5 overflow-y-auto font-mono text-[11px]">
+              <div className="mt-3 grid grid-cols-2 gap-1.5">
+                <GlassTile className="p-2.5">
+                  <Label>Occupied</Label>
+                  <div className="mt-1 font-mono text-[12px] text-[#3ddc97]">{occupiedCount}</div>
+                </GlassTile>
+                <GlassTile className="p-2.5">
+                  <Label>Free</Label>
+                  <div className="mt-1 font-mono text-[12px] text-white/60">
+                    {HASH_SIZE - occupiedCount}
+                  </div>
+                </GlassTile>
+              </div>
+            </div>
+          </GlassPanel>
+
+          <GlassPanel className="p-4">
+            <PanelHeader
+              icon={Activity}
+              title="Operation log"
+              right={<Badge tone={isDemoRunning ? "accent" : "muted"}>{isDemoRunning ? "demo" : "idle"}</Badge>}
+            />
+
+            <div className="mt-3 max-h-[220px] space-y-1 overflow-y-auto pr-1">
               {opLog.map((log, idx) => (
-                <div key={idx} className="rounded border border-white/[0.04] bg-black/40 p-1.5 text-[#8a8f98]">
-                  <span className={log.includes("FOUND") ? "text-[#3ddc97]" : log.includes("COLLISION") ? "text-[#ffb547]" : log.includes("DELETE") ? "text-[#ff5c7a]" : "text-white/80"}>
+                <div
+                  key={`${log}-${idx}`}
+                  className="rounded-md border border-white/[0.04] bg-black/25 px-2 py-1 font-mono text-[8px] leading-relaxed"
+                >
+                  <span
+                    className={cn(
+                      log.includes("found") || log.includes("FOUND")
+                        ? "text-[#3ddc97]"
+                        : log.includes("collision") || log.includes("DELETED")
+                          ? "text-[#ffb547]"
+                          : log.includes("DELETE")
+                            ? "text-[#ff5c7a]"
+                            : "text-white/50"
+                    )}
+                  >
                     {log}
                   </span>
                 </div>
               ))}
             </div>
-          </div>
+          </GlassPanel>
+
+          <GlassPanel soft className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="mono-label text-[8px] text-[#8a8f98]">Probe chain</span>
+              <span className={cn("font-mono text-[8px]", TONE.accent.text)}>
+                {probedSlots.length > 0 ? probedSlots.join(" → ") : "idle"}
+              </span>
+            </div>
+          </GlassPanel>
         </div>
-      </div>
-
-      <div className="rounded-xl border border-white/[0.12] bg-white/[0.02] p-4 backdrop-blur-md">
-        <button
-          onClick={() => setCodeOpen(!codeOpen)}
-          className="flex w-full items-center justify-between font-mono text-xs font-semibold text-white"
-        >
-          <div className="flex items-center gap-2">
-            <Cpu className="size-4 text-[#3d6bff]" />
-            <span>VIEW C IMPLEMENTATION (HashIndexer.c)</span>
-          </div>
-          {codeOpen ? <ChevronUp className="size-4 text-[#8a8f98]" /> : <ChevronDown className="size-4 text-[#8a8f98]" />}
-        </button>
-
-        {codeOpen && (
-          <div className="mt-4 rounded-lg border border-white/[0.08] bg-black/80 p-4 font-mono text-xs leading-relaxed text-[#8a8f98]">
-            <pre className="overflow-x-auto text-[11px]">
-              <code>{`#define SIZE 10
-
-typedef enum { EMPTY, OCCUPIED, DELETED } SlotStatus;
-
-typedef struct {
-    int packet_id;
-    char payload_data[32];
-    SlotStatus status;
-} HashItem;
-
-HashItem hashTable[SIZE];
-
-int hashCode(int key) {
-    return key % SIZE;
-}
-
-void insertPacket(int key, const char* data) {
-    int index = hashCode(key);
-    int start = index;
-    while (hashTable[index].status == OCCUPIED) {
-        index = (index + 1) % SIZE;
-        if (index == start) return; // Table full
-    }
-    hashTable[index].packet_id = key;
-    strncpy(hashTable[index].payload_data, data, 31);
-    hashTable[index].status = OCCUPIED;
-}
-
-int searchPacket(int key) {
-    int index = hashCode(key);
-    int start = index;
-    while (hashTable[index].status != EMPTY) {
-        if (hashTable[index].status == OCCUPIED && hashTable[index].packet_id == key) {
-            return index;
-        }
-        index = (index + 1) % SIZE;
-        if (index == start) break;
-    }
-    return -1;
-}
-
-void deletePacket(int key) {
-    int slot = searchPacket(key);
-    if (slot != -1) {
-        hashTable[slot].status = DELETED; // Dummy marker
-    }
-}`}</code>
-            </pre>
-          </div>
-        )}
       </div>
     </div>
   )
