@@ -73,6 +73,28 @@ const TASK_PRESETS = [
 
 const MAX_STACK_CAPACITY = 10
 
+function playOverflowBuzzer() {
+  if (typeof window === "undefined") return
+  try {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioCtx) return
+    const ctx = new AudioCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = "sawtooth"
+    osc.frequency.setValueAtTime(190, ctx.currentTime)
+    osc.frequency.linearRampToValueAtTime(80, ctx.currentTime + 0.3)
+    gain.gain.setValueAtTime(0.2, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3)
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.3)
+  } catch {}
+}
+
 export function Exp3TaskStack() {
   const taskSelectId = useId()
   const prioritySelectId = useId()
@@ -85,6 +107,7 @@ export function Exp3TaskStack() {
   const [animatingAction, setAnimatingAction] = useState<string | null>(null)
   const [isInterruptActive, setIsInterruptActive] = useState<boolean>(false)
   const [satnogsLoading, setSatnogsLoading] = useState<boolean>(false)
+  const [overflowShake, setOverflowShake] = useState<boolean>(false)
   const [statusMsg, setStatusMsg] = useState<string>("2 tasks resident · scheduler nominal")
   const [opLog, setOpLog] = useState<string[]>([
     "PUSH 101 · SSTV_Transmission · P2",
@@ -92,14 +115,23 @@ export function Exp3TaskStack() {
   ])
 
   const activeTask = stack.length > 0 ? stack[0] : null
+  const isOverflow = stack.length >= MAX_STACK_CAPACITY
 
   const logOperation = (msg: string) => {
     setOpLog((prev) => [msg, ...prev].slice(0, 10))
   }
 
+  const triggerOverflowAlarm = useCallback(() => {
+    setOverflowShake(true)
+    playOverflowBuzzer()
+    setStatusMsg("CRITICAL: STACK OVERFLOW · Address ceiling 0x000A reached (10/10)")
+    logOperation("EXCEPTION: STACK OVERFLOW · PUSH rejected (SP=10, Depth=10)")
+    setTimeout(() => setOverflowShake(false), 500)
+  }, [])
+
   const handlePush = useCallback(() => {
     if (stack.length >= MAX_STACK_CAPACITY) {
-      setStatusMsg("Overflow prevented · stack at capacity 10")
+      triggerOverflowAlarm()
       return
     }
     const preset = TASK_PRESETS[selectedPresetIndex]
@@ -115,6 +147,18 @@ export function Exp3TaskStack() {
     setAnimatingAction(`push-${nextTaskId}`)
     setNextTaskId((id) => id + 1)
 
+    const nextDepth = stack.length + 1
+    if (nextDepth >= MAX_STACK_CAPACITY) {
+      playOverflowBuzzer()
+      setOverflowShake(true)
+      setTimeout(() => setOverflowShake(false), 500)
+      setStatusMsg("CRITICAL: STACK OVERFLOW · Hardware SP reached ceiling 0x000A (10/10)")
+      logOperation(`PUSH ${newTask.task_id} · OVERFLOW CEILING REACHED (10/10)`)
+    } else {
+      logOperation(`PUSH ${newTask.task_id} · ${newTask.task_type} · P${newTask.priority}`)
+      setStatusMsg(`Task ${newTask.task_id} pushed to top · SP advanced`)
+    }
+
     setStack((prev) => {
       const updated = prev.map((item, idx) =>
         idx === 0 ? { ...item, status: "PAUSED" as const } : item
@@ -122,15 +166,43 @@ export function Exp3TaskStack() {
       return [newTask, ...updated]
     })
 
-    logOperation(`PUSH ${newTask.task_id} · ${newTask.task_type} · P${newTask.priority}`)
-    setStatusMsg(`Task ${newTask.task_id} pushed to top · SP advanced`)
-
     setTimeout(() => setAnimatingAction(null), 600)
-  }, [stack.length, selectedPresetIndex, selectedPriority, nextTaskId])
+  }, [stack.length, selectedPresetIndex, selectedPriority, nextTaskId, triggerOverflowAlarm])
+
+  const fillToOverflow = useCallback(() => {
+    if (stack.length >= MAX_STACK_CAPACITY) {
+      triggerOverflowAlarm()
+      return
+    }
+    const needed = MAX_STACK_CAPACITY - stack.length
+    let currId = nextTaskId
+    const addedTasks: TaskItem[] = []
+    for (let i = 0; i < needed; i++) {
+      const preset = TASK_PRESETS[(currId + i) % TASK_PRESETS.length]
+      addedTasks.unshift({
+        task_id: currId + i,
+        task_type: preset.type,
+        priority: preset.priority,
+        status: i === needed - 1 ? ("EXECUTING" as const) : ("PAUSED" as const),
+        description: preset.desc,
+        color: preset.color,
+      })
+    }
+    setNextTaskId((id) => id + needed)
+    setStack((prev) => {
+      const pausedPrev = prev.map((t) => ({ ...t, status: "PAUSED" as const }))
+      return [...addedTasks, ...pausedPrev]
+    })
+    playOverflowBuzzer()
+    setOverflowShake(true)
+    setStatusMsg("CRITICAL: STACK OVERFLOW · Filled to maximum capacity (10/10)")
+    logOperation("OVERFLOW GENERATOR · Stack filled to maximum depth (10/10)")
+    setTimeout(() => setOverflowShake(false), 500)
+  }, [stack.length, nextTaskId, triggerOverflowAlarm])
 
   const fetchSatnogsPass = async () => {
     if (stack.length >= MAX_STACK_CAPACITY) {
-      setStatusMsg("Overflow prevented · stack at capacity 10")
+      triggerOverflowAlarm()
       return
     }
     setSatnogsLoading(true)
@@ -156,8 +228,16 @@ export function Exp3TaskStack() {
           return [satTask, ...updated]
         })
 
-        logOperation(`PUSH ${satTask.task_id} · SatNOGS pass · P${satTask.priority}`)
-        setStatusMsg(`SatNOGS pass ${satTask.task_id} pushed to top`)
+        if (stack.length + 1 >= MAX_STACK_CAPACITY) {
+          playOverflowBuzzer()
+          setOverflowShake(true)
+          setTimeout(() => setOverflowShake(false), 500)
+          logOperation(`PUSH ${satTask.task_id} · SatNOGS pass · OVERFLOW CEILING (10/10)`)
+          setStatusMsg("CRITICAL: STACK OVERFLOW · SatNOGS task filled stack (10/10)")
+        } else {
+          logOperation(`PUSH ${satTask.task_id} · SatNOGS pass · P${satTask.priority}`)
+          setStatusMsg(`SatNOGS pass ${satTask.task_id} pushed to top`)
+        }
         setTimeout(() => setAnimatingAction(null), 600)
       }
     } catch {
@@ -174,6 +254,7 @@ export function Exp3TaskStack() {
     }
 
     const popped = stack[0]
+    const wasOverflow = stack.length >= MAX_STACK_CAPACITY
     setAnimatingAction(`pop-${popped.task_id}`)
 
     setTimeout(() => {
@@ -185,15 +266,20 @@ export function Exp3TaskStack() {
         )
       })
       setAnimatingAction(null)
-      logOperation(`POP ${popped.task_id} · ${popped.task_type} complete`)
-      setStatusMsg(`Task ${popped.task_id} completed · SP restored`)
+      if (wasOverflow) {
+        logOperation(`POP ${popped.task_id} · SP decremented to safe zone (9/10) · Overflow cleared`)
+        setStatusMsg(`Task ${popped.task_id} completed · Overflow cleared · SP restored to safe zone`)
+      } else {
+        logOperation(`POP ${popped.task_id} · ${popped.task_type} complete`)
+        setStatusMsg(`Task ${popped.task_id} completed · SP restored`)
+      }
     }, 420)
   }, [stack])
 
   const triggerInterrupt = useCallback(() => {
     if (isInterruptActive) return
     if (stack.length >= MAX_STACK_CAPACITY) {
-      setStatusMsg("Interrupt aborted · stack at capacity 10")
+      triggerOverflowAlarm()
       return
     }
 
@@ -209,16 +295,25 @@ export function Exp3TaskStack() {
     setIsInterruptActive(true)
     setAnimatingAction("push-999")
 
+    const nextDepth = stack.length + 1
+    if (nextDepth >= MAX_STACK_CAPACITY) {
+      playOverflowBuzzer()
+      setOverflowShake(true)
+      setTimeout(() => setOverflowShake(false), 500)
+      logOperation("ISR · PUSH 999 · TTC_HOUSEKEEPING · OVERFLOW CEILING (10/10)")
+      setStatusMsg("CRITICAL: STACK OVERFLOW + ISR ACTIVE · Maximum depth reached")
+    } else {
+      logOperation("ISR · PUSH 999 · TTC_HOUSEKEEPING · P1")
+      setStatusMsg("Interrupt asserted · running task context saved")
+    }
+
     setStack((prev) => {
       const updated = prev.map((item) => ({ ...item, status: "PAUSED" as const }))
       return [interruptTask, ...updated]
     })
 
-    logOperation("ISR · PUSH 999 · TTC_HOUSEKEEPING · P1")
-    setStatusMsg("Interrupt asserted · running task context saved")
-
     setTimeout(() => setAnimatingAction(null), 600)
-  }, [isInterruptActive, stack.length])
+  }, [isInterruptActive, stack.length, triggerOverflowAlarm])
 
   const completeInterrupt = useCallback(() => {
     if (!isInterruptActive || stack.length === 0 || stack[0].task_id !== 999) return
@@ -244,13 +339,14 @@ export function Exp3TaskStack() {
     setNextTaskId(103)
     setIsInterruptActive(false)
     setAnimatingAction(null)
+    setOverflowShake(false)
     setOpLog(["RESET · stack restored to baseline", "PUSH 101 · SSTV_Transmission · P2"])
     setStatusMsg("Stack restored · 2 tasks resident")
   }, [])
 
-  const statusTone: Tone = isInterruptActive
+  const statusTone: Tone = isOverflow || isInterruptActive
     ? "poor"
-    : /overflow|underflow|aborted|unavailable/i.test(statusMsg)
+    : /underflow|aborted|unavailable/i.test(statusMsg)
       ? "fair"
       : "good"
 
@@ -258,27 +354,40 @@ export function Exp3TaskStack() {
     <div className="flex flex-col gap-4">
       <ExperimentHeader
         code="03"
-        tag="stack · LIFO · depth 10"
+        tag={isOverflow ? "stack · LIFO · depth 10 · OVERFLOW EXCEPTION" : "stack · LIFO · depth 10"}
         title="Onboard Task Stack"
-        state={isInterruptActive ? "ISR ACTIVE" : "SCHEDULER NOMINAL"}
-        stateTone={isInterruptActive ? "poor" : "good"}
+        state={
+          isOverflow
+            ? "STACK OVERFLOW (10/10)"
+            : isInterruptActive
+              ? "ISR ACTIVE"
+              : "SCHEDULER NOMINAL"
+        }
+        stateTone={isOverflow || isInterruptActive ? "poor" : "good"}
         actions={
           <>
             <ToolButton
               icon={Globe}
               variant="live"
               onClick={fetchSatnogsPass}
-              disabled={mounted ? satnogsLoading || stack.length >= MAX_STACK_CAPACITY : false}
+              disabled={mounted ? satnogsLoading : false}
               suppressHydrationWarning
             >
               {satnogsLoading ? "Pulling" : "SatNOGS pass"}
+            </ToolButton>
+            <ToolButton
+              icon={ShieldAlert}
+              variant={isOverflow ? "danger" : "glass"}
+              onClick={fillToOverflow}
+              title="Simulate full stack to test Stack Overflow"
+            >
+              {isOverflow ? "Overflowed (10/10)" : "Fill Stack (Overflow)"}
             </ToolButton>
             {!isInterruptActive ? (
               <ToolButton
                 icon={AlertOctagon}
                 variant="danger"
                 onClick={triggerInterrupt}
-                disabled={mounted ? stack.length >= MAX_STACK_CAPACITY : false}
                 suppressHydrationWarning
               >
                 Interrupt
@@ -296,11 +405,16 @@ export function Exp3TaskStack() {
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:flex sm:items-center sm:gap-7">
-            <Metric label="Depth" value={stack.length} unit={`/ ${MAX_STACK_CAPACITY}`} />
+            <Metric
+              label="Depth"
+              value={stack.length}
+              unit={`/ ${MAX_STACK_CAPACITY}`}
+              tone={isOverflow ? "poor" : "white"}
+            />
             <Metric
               label="Top task"
               value={activeTask ? `#${activeTask.task_id}` : "—"}
-              tone="accent"
+              tone={isOverflow ? "poor" : "accent"}
             />
             <Metric
               label="Priority"
@@ -309,20 +423,20 @@ export function Exp3TaskStack() {
             />
             <Metric
               label="Mode"
-              value={isInterruptActive ? "PREEMPT" : "NORMAL"}
-              tone={isInterruptActive ? "poor" : "good"}
+              value={isOverflow ? "OVERFLOW" : isInterruptActive ? "PREEMPT" : "NORMAL"}
+              tone={isOverflow || isInterruptActive ? "poor" : "good"}
             />
           </div>
           <div className="w-full max-w-[200px]">
             <div className="flex items-center justify-between">
               <Label>Stack load</Label>
-              <span className="font-mono text-[9px] text-white/45">
-                {stack.length}/{MAX_STACK_CAPACITY}
+              <span className={cn("font-mono text-[9px]", isOverflow ? "text-[#ff5c7a] font-bold" : "text-white/45")}>
+                {stack.length}/{MAX_STACK_CAPACITY} {isOverflow && "· FULL"}
               </span>
             </div>
             <ProgressBar
               value={(stack.length / MAX_STACK_CAPACITY) * 100}
-              tone={isInterruptActive ? "poor" : "accent"}
+              tone={isOverflow || isInterruptActive ? "poor" : "accent"}
               className="mt-1.5"
             />
           </div>
@@ -335,12 +449,61 @@ export function Exp3TaskStack() {
             icon={Layers}
             title="LIFO stack"
             meta="push / pop at top"
-            right={<Badge tone={isInterruptActive ? "poor" : "accent"}>SP → depth 0</Badge>}
+            right={
+              <Badge tone={isOverflow ? "poor" : isInterruptActive ? "poor" : "accent"}>
+                {isOverflow ? "SP CEILING FAULT · 10/10" : "SP → depth 0"}
+              </Badge>
+            }
           />
 
-          <div className="glass-well relative mt-4 flex min-h-[240px] flex-col justify-end overflow-hidden p-3">
+          <div
+            className={cn(
+              "glass-well relative mt-4 flex min-h-[240px] flex-col justify-end overflow-hidden p-3 transition-all duration-300",
+              isOverflow &&
+                "border-[#ff5c7a]/70 shadow-[0_0_35px_-5px_rgba(255,92,122,0.4)] bg-gradient-to-t from-[#ff5c7a]/[0.08] via-transparent to-transparent",
+              overflowShake && "animate-shake"
+            )}
+          >
             <div aria-hidden className="pointer-events-none absolute inset-0 grid-dots opacity-[0.25]" />
-            <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#3d6bff]/[0.06] to-transparent" />
+            <div
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t to-transparent",
+                isOverflow ? "from-[#ff5c7a]/[0.1]" : "from-[#3d6bff]/[0.06]"
+              )}
+            />
+
+            {isOverflow && (
+              <div className="relative mb-3 overflow-hidden rounded-lg border border-[#ff5c7a]/60 bg-[#ff5c7a]/15 p-2.5 shadow-[0_0_20px_rgba(255,92,122,0.25)] animate-pulse-glow">
+                <div className="flex items-center gap-2.5">
+                  <AlertOctagon className="size-5 shrink-0 text-[#ff5c7a] animate-pulse" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-[10px] font-bold tracking-wider text-[#ff5c7a]">
+                        CRITICAL: STACK OVERFLOW EXCEPTION
+                      </span>
+                      <span className="rounded bg-[#ff5c7a]/30 px-1.5 py-0.5 font-mono text-[8px] font-bold text-[#ff5c7a]">
+                        CEILING: 10/10
+                      </span>
+                    </div>
+                    <p className="mt-0.5 font-mono text-[8.5px] leading-snug text-white/70">
+                      Hardware Stack Pointer (SP) has reached memory ceiling 0x000A. Additional PUSH attempts are rejected. POP a task to relieve memory pressure.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {isOverflow && (
+              <div className="relative mb-2 flex items-center justify-between border-b border-dashed border-[#ff5c7a]/70 pb-1">
+                <span className="font-mono text-[8px] font-bold uppercase tracking-widest text-[#ff5c7a]">
+                  ▲ SP CEILING (0x000A) · MEMORY OVERFLOW ▲
+                </span>
+                <span className="font-mono text-[8px] font-semibold text-[#ff5c7a]">
+                  BLOCKED
+                </span>
+              </div>
+            )}
 
             {stack.length === 0 ? (
               <div className="relative my-auto flex flex-col items-center justify-center py-10 text-center">
@@ -367,7 +530,9 @@ export function Exp3TaskStack() {
                       className={cn(
                         "relative overflow-hidden rounded-lg border px-3 py-2.5 transition-colors duration-300",
                         isTop
-                          ? "border-[#3d6bff]/55 bg-gradient-to-r from-[#3d6bff]/[0.16] via-[#3d6bff]/[0.06] to-transparent"
+                          ? isOverflow
+                            ? "border-[#ff5c7a]/80 bg-gradient-to-r from-[#ff5c7a]/[0.2] via-[#ff5c7a]/[0.08] to-transparent shadow-[0_0_20px_-4px_rgba(255,92,122,0.6)]"
+                            : "border-[#3d6bff]/55 bg-gradient-to-r from-[#3d6bff]/[0.16] via-[#3d6bff]/[0.06] to-transparent"
                           : "border-white/[0.07] bg-white/[0.025]",
                         isPushing && "animate-plate-drop",
                         isPopping && "animate-plate-eject",
@@ -380,7 +545,9 @@ export function Exp3TaskStack() {
                             className={cn(
                               "flex size-5 shrink-0 items-center justify-center rounded font-mono text-[8px] font-bold",
                               isTop
-                                ? "bg-[#3d6bff] text-white shadow-[0_0_16px_-4px_rgba(61,107,255,1)]"
+                                ? isOverflow
+                                  ? "bg-[#ff5c7a] text-white shadow-[0_0_16px_-4px_rgba(255,92,122,1)]"
+                                  : "bg-[#3d6bff] text-white shadow-[0_0_16px_-4px_rgba(61,107,255,1)]"
                                 : "bg-white/[0.06] text-white/35"
                             )}
                           >
@@ -395,6 +562,11 @@ export function Exp3TaskStack() {
                         </div>
 
                         <div className="flex shrink-0 items-center gap-1.5">
+                          {isTop && isOverflow && (
+                            <span className="rounded bg-[#ff5c7a]/25 border border-[#ff5c7a]/50 px-1 py-0.5 font-mono text-[7.5px] font-bold text-[#ff5c7a]">
+                              CEILING LIMIT
+                            </span>
+                          )}
                           <span className="rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-[8px] text-white/40">
                             P{item.priority}
                           </span>
@@ -417,8 +589,13 @@ export function Exp3TaskStack() {
                       </div>
 
                       {isTop && (
-                        <div className="mt-1.5 truncate pl-7 font-mono text-[9px] text-[#3ddc97]/60">
-                          {item.description}
+                        <div
+                          className={cn(
+                            "mt-1.5 truncate pl-7 font-mono text-[9px]",
+                            isOverflow ? "text-[#ff5c7a]/80" : "text-[#3ddc97]/60"
+                          )}
+                        >
+                          {isOverflow ? "⚠️ STACK CEILING (0x000A) · Memory boundary hit" : item.description}
                         </div>
                       )}
                     </div>
@@ -474,12 +651,11 @@ export function Exp3TaskStack() {
             <div className="flex items-center gap-1.5">
               <ToolButton
                 icon={ArrowDown}
-                variant="primary"
+                variant={isOverflow ? "danger" : "primary"}
                 onClick={handlePush}
-                disabled={mounted ? stack.length >= MAX_STACK_CAPACITY : false}
                 suppressHydrationWarning
               >
-                Push
+                {isOverflow ? "Push (Overflow!)" : "Push"}
               </ToolButton>
               <ToolButton
                 icon={ArrowUp}
@@ -498,7 +674,16 @@ export function Exp3TaskStack() {
             <PanelHeader
               icon={Cpu}
               title="Active task"
-              right={<span className="mono-label text-[8px] text-white/25">top of stack</span>}
+              right={
+                <span
+                  className={cn(
+                    "mono-label text-[8px]",
+                    isOverflow ? "text-[#ff5c7a] font-bold" : "text-white/25"
+                  )}
+                >
+                  {isOverflow ? "CEILING REACHED" : "top of stack"}
+                </span>
+              }
             />
 
             {activeTask ? (
@@ -508,22 +693,35 @@ export function Exp3TaskStack() {
                     <div className="font-mono text-[22px] font-semibold leading-none tracking-tight text-white">
                       #{activeTask.task_id}
                     </div>
-                    <div className="mt-1.5 font-mono text-[10px] text-[#3d6bff]">
+                    <div
+                      className={cn(
+                        "mt-1.5 font-mono text-[10px]",
+                        isOverflow ? "text-[#ff5c7a]" : "text-[#3d6bff]"
+                      )}
+                    >
                       {activeTask.task_type}
                     </div>
                   </div>
-                  <Badge tone={activeTask.status === "EXECUTING" ? "good" : "fair"}>
+                  <Badge tone={isOverflow ? "poor" : activeTask.status === "EXECUTING" ? "good" : "fair"}>
                     <span
                       className={cn(
                         "size-1 rounded-full",
-                        activeTask.status === "EXECUTING"
-                          ? "bg-[#3ddc97] animate-pulse"
-                          : "bg-[#ffb547]"
+                        isOverflow
+                          ? "bg-[#ff5c7a] animate-ping"
+                          : activeTask.status === "EXECUTING"
+                            ? "bg-[#3ddc97] animate-pulse"
+                            : "bg-[#ffb547]"
                       )}
                     />
-                    {activeTask.status}
+                    {isOverflow ? "OVERFLOW" : activeTask.status}
                   </Badge>
                 </div>
+
+                {isOverflow && (
+                  <div className="mt-2.5 rounded-lg border border-[#ff5c7a]/40 bg-[#ff5c7a]/10 p-2 font-mono text-[9px] text-[#ff5c7a]">
+                    ⚠️ STACK FULL: Hardware SP ceiling reached (0x000A). All further PUSH operations blocked. POP active task to recover.
+                  </div>
+                )}
 
                 <div className="mt-3 grid grid-cols-2 gap-1.5">
                   <GlassTile className="p-2.5">
@@ -534,8 +732,13 @@ export function Exp3TaskStack() {
                   </GlassTile>
                   <GlassTile className="p-2.5">
                     <Label>Depth</Label>
-                    <div className="mt-1 font-mono text-[12px] text-white">
-                      {stack.length}
+                    <div
+                      className={cn(
+                        "mt-1 font-mono text-[12px]",
+                        isOverflow ? "text-[#ff5c7a] font-bold" : "text-white"
+                      )}
+                    >
+                      {stack.length} / {MAX_STACK_CAPACITY}
                     </div>
                   </GlassTile>
                 </div>
@@ -547,8 +750,21 @@ export function Exp3TaskStack() {
                 <div className="mt-3">
                   <div className="flex items-center justify-between">
                     <Label>Frame state</Label>
-                    <span className="font-mono text-[8px] text-[#3ddc97]">
-                      {isInterruptActive ? "context saved" : "running"}
+                    <span
+                      className={cn(
+                        "font-mono text-[8px]",
+                        isOverflow
+                          ? "text-[#ff5c7a] font-bold"
+                          : isInterruptActive
+                            ? "text-[#ffb547]"
+                            : "text-[#3ddc97]"
+                      )}
+                    >
+                      {isOverflow
+                        ? "OVERFLOW FAULT"
+                        : isInterruptActive
+                          ? "context saved"
+                          : "running"}
                     </span>
                   </div>
                   <div className="mt-1.5 flex gap-1">
@@ -558,9 +774,11 @@ export function Exp3TaskStack() {
                         className={cn(
                           "h-1 flex-1 rounded-full transition-colors duration-300",
                           i < stack.length
-                            ? i === 0
-                              ? "bg-[#3d6bff]"
-                              : "bg-white/20"
+                            ? isOverflow
+                              ? "bg-[#ff5c7a]"
+                              : i === 0
+                                ? "bg-[#3d6bff]"
+                                : "bg-white/20"
                             : "bg-white/[0.05]"
                         )}
                       />
@@ -592,11 +810,13 @@ export function Exp3TaskStack() {
                   key={`${log}-${index}`}
                   className={cn(
                     "flex items-center justify-between gap-2 rounded-md border border-white/[0.04] bg-black/25 px-2 py-1 font-mono text-[9px]",
-                    log.includes("ISR")
-                      ? "text-[#ff5c7a]"
-                      : log.includes("POP")
-                        ? "text-[#3ddc97]"
-                        : "text-white/55"
+                    log.includes("OVERFLOW") || log.includes("EXCEPTION")
+                      ? "border-[#ff5c7a]/30 text-[#ff5c7a] font-semibold"
+                      : log.includes("ISR")
+                        ? "text-[#ff5c7a]"
+                        : log.includes("POP")
+                          ? "text-[#3ddc97]"
+                          : "text-white/55"
                   )}
                 >
                   <span className="truncate">{log}</span>
