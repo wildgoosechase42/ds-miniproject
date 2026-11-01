@@ -1,0 +1,86 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2908
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 okay now create a 5 medium sized detailed points on how we created this website. dont include the actual data structures in this. i will prepare for the data structures seperately\
+\
+Here are five points covering how the site was built, focused on the web engineering (no data-structure internals):\
+\
+**1. Design system defined before any experiment**\
+The visual language lives in one place: `app/globals.css` holds the palette (`#3d6bff`, `#3ddc97`, `#ffb547`, `#ff5c7a` on black), the font stack (self-hosted Inter + JetBrains Mono via `@fontsource`), and a reusable glass layer \'97 `.glass-panel`, `.glass-tile`, `.glass-well`, `.sheen`, `.grid-dots`, `.range-slider`, plus keyframes for ambient motion. On top of that, `components/sections/flight/ui.tsx` exposes shared primitives (`GlassPanel`, `ToolButton`, `IconButton`, `Field`, `Badge`, `Metric`, `ExperimentHeader`, `SpaceBackdrop`). Building these first meant all eight experiments inherit the same rhythm, and a fix \'97 dark form fields, slider thumb colour, button contrast over artwork \'97 is applied once instead of eight times.\
+\
+**2. A single-scroll narrative with an isolated module inside it**\
+The site is a Next.js 16 App Router project with one page composed of independent sections: `TopBar \uc0\u8594  Hero \u8594  Mission \u8594  Challenge \u8594  Build \u8594  FlightEngine \u8594  Footer`, stitched together with Lenis smooth scrolling and `scrollRestoration` disabled so refreshes always start at the top. The Hero is a `react-three-fiber` scene driven by scroll progress. Flight Core is deliberately treated as a module, not another section: its own header, engine-status pill, eight-tab rail, and GSAP stage transitions, with each experiment owning its state so switching tabs never leaks timers or stale animation state.\
+\
+**3. A typed data layer with a CORS-safe fallback path**\
+Live telemetry comes through `lib/satnogsClient.ts` (`fetchSatnogsTelemetry`, `fetchSatnogsExp1` with cursor pagination), returning typed packet shapes rather than raw JSON. Because the Python backend at `NEXT_PUBLIC_API_URL` does not send CORS headers, the browser never calls it directly \'97 Next.js route handlers (`/api/satnogs/telemetry`, `/api/exp1/satnogs/fetch`, `/api/exp4/status`) act as a server-side proxy. Every experiment degrades gracefully: if the link is down it keeps its local simulation running, and the header chip reflects the real state (`SATNOGS LINK`, `INGESTING DOWNLINK`, `Querying`) instead of failing silently.\
+\
+**4. Motion built as state machines, not decoration**\
+Animation is the interface. GSAP (`useGSAP` scopes, `ScrollTrigger`) handles section reveals and stage changes, while each simulation is driven by explicit state \'97 a queue of steps, a timeline, a frame clock \'97 so buttons can interrupt, replay, or reset cleanly. Camera and viewport behaviour is computed rather than hard-coded (e.g. auto-fit via `ResizeObserver`, panning only when the active element would leave the frame). The quicksort audio is synthesised with the Web Audio API in `lib/sortAudio.ts` (no asset downloads), and every animated path respects the `prefers-reduced-motion` guard.\
+\
+**5. Iterated in the browser with a hard verification gate**\
+The design was not written once and shipped. Each experiment was driven in a live dev server at real viewport sizes, screenshotted, and corrected: contrast on buttons sitting over the header artwork, amber saturation for the "buffer full" state, larger readable nodes, step-by-step instead of instant search, and a naming pass that renamed experiments to match what they actually show. Every iteration ended with `tsc --noEmit`, `eslint`, and `next build`, plus a console check to catch regressions \'97 and generated decoration (star fields, layouts) uses seeded, deterministic values so server and client markup match and hydration stays clean.\
+==================================================================================\
+now tell me how we implemented C in this\
+The C is a single shared library that owns all mission state; Python and the browser are just clients of it.\
+\
+**1. One C99 core, no dependencies**\
+`backend/c_core/mission_suite.c` (\uc0\u8776 400 lines) and `mission_suite.h` implement all eight experiments as plain C functions \'97 no libraries beyond `stdint.h`, `stdbool.h`, `stdlib.h`, `string.h`. The header defines fixed capacities as macros (`EXP1_STATIC_CAPACITY 1024`, `EXP4_QUEUE_CAPACITY 10`, `EXP8_HASH_SIZE 10`, `EXP6_GRAPH_NODES 5`) and every packet struct uses fixed-width types (`int64_t`, `uint32_t`, `float`, `uint8_t[32]`) rather than `int`/`long`, so the memory layout is identical on every platform and can be mirrored exactly in Python.\
+\
+**2. Compiled to a shared object, not a binary**\
+The core is built with `gcc -shared -fPIC -o libmissionsuite.so mission_suite.c` and loaded as a dynamic library. Three places handle that: the `.so` sits in `backend/c_core/`, `start.sh` recompiles it if it is missing before launching uvicorn, and `backend/Dockerfile` installs `gcc` in the `python:3.11-slim` image and runs the same compile step at build time. The runtime image therefore needs no toolchain \'97 only `libmissionsuite.so`.\
+\
+**3. Python binds to it through `ctypes`**\
+`backend/main.py` opens the library with `ctypes.CDLL`, declares a `ctypes.Structure` mirror for each C struct (same field order, same widths, `c_char * 32`, `c_void_p` for `left`/`right` pointers), and then explicitly sets `argtypes` and `restype` for every exported function. Output parameters use `ctypes.byref(out)` so C writes straight into a Python-owned struct, and arrays are passed as `Exp7EventPacket * n` buffers. That explicit declaration step is what keeps Python and C from silently disagreeing about calling conventions.\
+\
+**4. C owns the state, Python only orchestrates**\
+Every structure lives in file-scope statics inside the library \'97 `s_exp1_buf`, `s_exp2_head/tail`, `s_exp4_buf/front/rear/count`, `s_exp5_root`, the adjacency matrix, the hash table. They are initialised once at import time by calling each `*_init_*` function, and then mutated by HTTP requests for the lifetime of the process. The C code does its own memory management (`malloc`/`free` for linked nodes and tree nodes, `memset`/`memcpy` for fixed buffers) with defensive checks: bounds validation on indices, null checks on output pointers, bounded `strncpy` with manual NUL termination, and payload truncation to 32 bytes.\
+\
+**5. FastAPI turns each C function into a typed endpoint**\
+Pydantic models validate the request, the handler calls the C function, and the result is marshalled back into JSON \'97 e.g. `POST /api/exp2/enqueue` \uc0\u8594  `core.exp2_enqueue(...)` \u8594  `\{"size": core.exp2_get_size()\}`. Failures are mapped to real HTTP semantics: `404` for empty buffer / stack underflow / packet not found, `400` for out-of-bounds index or full table, `500` for allocation failure. `POST /api/exp7/process` copies the whole event list into a ctypes array, sorts it in C, then reads the array back out; `GET /api/exp8/slots` fills a 10-element array and returns the entire table.\
+\
+**6. The browser reaches it through a proxy, and the visuals are re-implementations**\
+The FastAPI app enables `CORSMiddleware`, and Next.js route handlers (`/api/exp1/satnogs/fetch`, `/api/exp4/status`, `/api/satnogs/telemetry`) proxy to `NEXT_PUBLIC_API_URL` when a direct call is blocked. The animated panels themselves are TypeScript re-implementations of the same semantics, because C executes an operation atomically and the UI needs per-comparison frames; the C core is still the source of truth for recorded operations (Exp1 writes, Exp2 enqueue/dequeue, Exp4 ring status).\
+\
+Two honest caveats worth stating if this goes into a report: the mutable globals mean the library assumes a single uvicorn worker (multiple processes would each get their own state), and the struct layout is duplicated in two places \'97 the header and the `ctypes` mirror \'97 so any field change has to be made in both.\
+==================================================================================\
+and how did we connect the database and how do we import the data onto the experiments. how many elements are in this data set\
+Short answer: there is no database in this project. No SQL, no ORM, no `.db` file, no migrations \'97 I checked the whole tree. The footer line about "real-time SatNOGS database integration" refers to the *external* SatNOGS Network API, and all app state lives in process memory inside the C shared library.\
+\
+**1. What plays the role of the database**\
+Three layers, none of them persistent:\
+- **C statics** \'97 the 1024-slot packet array, the linked-list head/tail, the ring buffer, the BST root, the hash table. They are `static` file-scope variables in `libmissionsuite.so`, initialised once when FastAPI imports the module, and lost on restart.\
+- **React state** \'97 each experiment holds its own copy for rendering and animation, seeded from a constant.\
+- **SatNOGS Network** \'97 `https://network.satnogs.org/api/observations/`, read-only, fetched on demand. That is the only real "database" the site talks to.\
+\
+**2. How live data gets in**\
+The chain is: button \uc0\u8594  `lib/satnogsClient.ts` \u8594  FastAPI \u8594  SatNOGS \u8594  back up the same path.\
+\
+- `fetchSatnogsExp1(startIndex, limit, cursor)` (Exp 1) and `fetchSatnogsTelemetry(limit)` (Exp 2\'967) first try `http://127.0.0.1:8000`; if that fails they fall back to the Next.js route handlers, which proxy the same call server-side (this is what avoids the CORS errors you see in the console when the Python backend is not running).\
+- The backend requests `?status=good&format=json&limit=N&cursor=\'85`, parses the `Link: rel="next"` header to extract the next cursor, and normalises each observation into the app's packet shape: `id` \uc0\u8594  `packet_id`, `start` (ISO) \u8594  `timestamp`, `station_name` \u8594  `ground_station`, `transmitter_mode` \u8594  `payload_type` (GFSK/FSK \u8594  TELEMETRY, SSTV/IMAGE/APT \u8594  IMAGE, GMSK/BPSK/QPSK \u8594  SENSOR, else COMMAND).\
+- It also writes each packet into the C array at `(start_index + i) % 1024` via `exp1_set_packet`, so the UI animation and the C state stay in sync.\
+- One honest caveat for your report: SatNOGS returns *observation records*, not decoded telemetry. `battery_status` is derived (`84 + (obs_id % 100)/10`), so the battery/temperature numbers are plausible synthetic values attached to real observations, not real sensor readings.\
+\
+**3. How each experiment gets its initial data**\
+Every panel ships with a hardcoded seed so it renders instantly and works offline:\
+\
+| Experiment | Seed | Live pull |\
+|---|---|---|\
+| 1 \'b7 Structure of Array | 6 packets in a 1024-slot array | 25 per click, cursor-paginated |\
+| 2 \'b7 Node Chain | 3 nodes | 5 |\
+| 3 \'b7 Task Stack | 2 frames | 5 |\
+| 4 \'b7 Circular Ring | 3 of 10 slots | 5 |\
+| 5 \'b7 Event Explorer | 11-node tree | 7 |\
+| 6 \'b7 Route BFS | 5-node graph, 5 edges | 5 |\
+| 7 \'b7 Search Engine | generated 24 events | `min(size, 20)` |\
+| 8 \'b7 Direct Indexer | 3 of 10 slots | none (manual insert/search) |\
+\
+**4. If the network is down**\
+The backend catches the exception and synthesises deterministic packets (`timestamp = 1719749358 + slot \'d7 14`, ids from `15060000 + slot`, cycling payload types), so the UI never breaks \'97 it just switches from real observations to a seeded series, and the header chip reports the link state.\
+\
+**5. How many elements the dataset actually has**\
+There is no fixed corpus \'97 it is paginated live. The SatNOGS request is clamped to **1\'9664 observations per call** (`min(max(limit,1),64)`), and the app asks for 5 by default (25 for Exp 1). So each click brings in a handful of rows, not a dataset. The largest structure in the app is Exp 1's array: **1024 slots** (6 preloaded, 32 pages of 32), followed by Exp 7's **12 / 24 / 48 / 96** generated events (24 by default), the **11-node** BST, the **10-slot** hash table and ring buffer, and the **5-node** graph.\
+}

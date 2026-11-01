@@ -5,6 +5,7 @@ import { TopBar } from "@/components/layout/TopBar"
 import { Hero } from "@/components/Hero"
 import { Mission } from "@/sections/Mission"
 import { Challenge } from "@/sections/Challenge"
+import { Payloads } from "@/sections/Payloads"
 import { Build } from "@/sections/Build"
 import { FlightEngine } from "@/components/sections/FlightEngine"
 import { Footer } from "@/components/layout/Footer"
@@ -42,6 +43,7 @@ export default function Home() {
         <Hero ready={true} />
         <Mission />
         <Challenge />
+        <Payloads />
         <Build />
         <FlightEngine />
       </main>

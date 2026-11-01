@@ -15,6 +15,7 @@ const SECTIONS: NavSection[] = [
   { id: "hero", label: "Overview" },
   { id: "mission", label: "Mission" },
   { id: "challenge", label: "Challenge" },
+  { id: "payloads", label: "Payloads" },
   { id: "build", label: "The Build" },
   { id: "flight-engine", label: "Flight Core" },
 ]
